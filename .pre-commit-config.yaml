@@ -1,0 +1,43 @@
+repos:
+  # Python hooks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      # Python tests
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        always_run: true
+        types: [python]
+
+      # Frontend linting
+      - id: frontend-lint
+        name: frontend eslint
+        entry: bash -c 'cd frontend && npm run lint'
+        language: system
+        pass_filenames: false
+        files: ^frontend/.*\.(ts|tsx)$
+
+      # Frontend formatting
+      - id: frontend-format
+        name: frontend prettier
+        entry: bash -c 'cd frontend && npm run format:check'
+        language: system
+        pass_filenames: false
+        files: ^frontend/.*\.(ts|tsx|css)$
+
+      # Frontend tests
+      - id: frontend-test
+        name: frontend vitest
+        entry: bash -c 'cd frontend && npm test'
+        language: system
+        pass_filenames: false
+        files: ^frontend/.*\.(ts|tsx)$
