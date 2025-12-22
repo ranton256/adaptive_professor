@@ -20,10 +20,13 @@ export interface InteractiveControl {
 export interface SlidePayload {
   type: string;
   slide_id: string;
+  session_id: string | null;
   layout: string;
   content: SlideContent;
   interactive_controls: InteractiveControl[];
   allow_freeform_input: boolean;
+  slide_index: number;
+  total_slides: number;
 }
 
 export async function checkHealth(): Promise<HealthResponse> {
@@ -44,6 +47,25 @@ export async function startLecture(topic: string): Promise<SlidePayload> {
   });
   if (!response.ok) {
     throw new Error(`Failed to start lecture: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function performAction(
+  sessionId: string,
+  action: string,
+  params?: Record<string, unknown>
+): Promise<SlidePayload> {
+  const response = await fetch(`${API_BASE_URL}/api/lecture/${sessionId}/action`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action, params }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Action failed: ${response.status}`);
   }
   return response.json();
 }

@@ -24,7 +24,10 @@ class SlidePayload(BaseModel):
 
     type: str = "render_slide"
     slide_id: str
+    session_id: str | None = None
     layout: str = "default"
     content: SlideContent
     interactive_controls: list[InteractiveControl] = []
     allow_freeform_input: bool = True
+    slide_index: int = 0
+    total_slides: int = 1

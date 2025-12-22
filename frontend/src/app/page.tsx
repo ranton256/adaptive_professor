@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
-import { SlidePayload, startLecture } from "@/lib/api";
+import { SlidePayload, startLecture, performAction } from "@/lib/api";
 
 export default function Home() {
   const [topic, setTopic] = useState("");
   const [slide, setSlide] = useState<SlidePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   async function handleStartLecture() {
     if (!topic.trim()) return;
@@ -23,6 +24,27 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleAction(action: string) {
+    if (!slide?.session_id) return;
+
+    setActionLoading(true);
+    setError(null);
+    try {
+      const result = await performAction(slide.session_id, action);
+      setSlide(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  function handleReset() {
+    setSlide(null);
+    setTopic("");
+    setError(null);
   }
 
   return (
@@ -59,26 +81,49 @@ export default function Home() {
           </div>
         ) : (
           <div className="w-full max-w-2xl space-y-6">
+            {/* Progress indicator */}
+            <div className="flex items-center justify-between text-sm text-zinc-500 dark:text-zinc-400">
+              <span>
+                Slide {slide.slide_index + 1} of {slide.total_slides}
+              </span>
+              <div className="h-2 flex-1 mx-4 rounded-full bg-zinc-200 dark:bg-zinc-700">
+                <div
+                  className="h-2 rounded-full bg-blue-600 transition-all duration-300"
+                  style={{
+                    width: `${((slide.slide_index + 1) / slide.total_slides) * 100}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Slide content */}
             <div className="rounded-xl bg-white p-8 shadow-lg dark:bg-zinc-800">
               <h2 className="mb-4 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
                 {slide.content.title}
               </h2>
-              <p className="text-lg text-zinc-700 dark:text-zinc-300">{slide.content.text}</p>
+              <p className="text-lg leading-relaxed text-zinc-700 dark:text-zinc-300">
+                {slide.content.text}
+              </p>
             </div>
 
+            {/* Interactive controls */}
             <div className="flex flex-wrap gap-3">
               {slide.interactive_controls.map((control, index) => (
                 <button
                   key={index}
-                  className="rounded-lg border border-zinc-300 bg-white px-4 py-2 font-medium text-zinc-900 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+                  onClick={() => handleAction(control.action)}
+                  disabled={actionLoading}
+                  className="rounded-lg border border-zinc-300 bg-white px-4 py-2 font-medium text-zinc-900 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
                 >
-                  {control.label}
+                  {actionLoading ? "..." : control.label}
                 </button>
               ))}
             </div>
 
+            {error && <p className="text-center text-red-500">{error}</p>}
+
             <button
-              onClick={() => setSlide(null)}
+              onClick={handleReset}
               className="text-sm text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
             >
               Start new lecture

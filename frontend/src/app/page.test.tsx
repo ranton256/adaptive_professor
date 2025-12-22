@@ -1,16 +1,54 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import Home from "./page";
 
 // Mock the api module
 vi.mock("@/lib/api", () => ({
   checkHealth: vi.fn().mockResolvedValue({ status: "healthy", service: "Adaptive Professor" }),
   startLecture: vi.fn(),
+  performAction: vi.fn(),
 }));
 
-import { startLecture } from "@/lib/api";
+import { startLecture, performAction } from "@/lib/api";
+
+const mockSlidePayload = {
+  type: "render_slide",
+  slide_id: "slide_01",
+  session_id: "test-session-123",
+  layout: "default",
+  content: {
+    title: "Introduction to Test Topic",
+    text: "This is the first slide content.",
+  },
+  interactive_controls: [
+    { label: "Next", action: "advance_main_thread" },
+    { label: "Simplify", action: "simplify_slide" },
+  ],
+  allow_freeform_input: true,
+  slide_index: 0,
+  total_slides: 6,
+};
+
+const mockSecondSlide = {
+  ...mockSlidePayload,
+  slide_id: "slide_02",
+  content: {
+    title: "Second Slide",
+    text: "This is the second slide content.",
+  },
+  interactive_controls: [
+    { label: "Next", action: "advance_main_thread" },
+    { label: "Previous", action: "go_previous" },
+    { label: "Simplify", action: "simplify_slide" },
+  ],
+  slide_index: 1,
+};
 
 describe("Home", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("renders the title", () => {
     render(<Home />);
     expect(screen.getByText("Adaptive Professor")).toBeInTheDocument();
@@ -42,17 +80,7 @@ describe("Home", () => {
   });
 
   it("displays slide when lecture starts successfully", async () => {
-    vi.mocked(startLecture).mockResolvedValue({
-      type: "render_slide",
-      slide_id: "slide_01",
-      layout: "title",
-      content: {
-        title: "Welcome to: Test Topic",
-        text: "Let's begin our learning journey.",
-      },
-      interactive_controls: [{ label: "Next", action: "advance" }],
-      allow_freeform_input: true,
-    });
+    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
 
     render(<Home />);
 
@@ -63,7 +91,7 @@ describe("Home", () => {
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(screen.getByText("Welcome to: Test Topic")).toBeInTheDocument();
+      expect(screen.getByText("Introduction to Test Topic")).toBeInTheDocument();
     });
   });
 
@@ -81,5 +109,100 @@ describe("Home", () => {
     await waitFor(() => {
       expect(screen.getByText("Network error")).toBeInTheDocument();
     });
+  });
+
+  it("displays slide progress indicator", async () => {
+    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
+
+    render(<Home />);
+
+    const input = screen.getByPlaceholderText(/Enter a topic/);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByText("Start Lecture"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Slide 1 of 6")).toBeInTheDocument();
+    });
+  });
+
+  it("displays interactive control buttons", async () => {
+    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
+
+    render(<Home />);
+
+    const input = screen.getByPlaceholderText(/Enter a topic/);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByText("Start Lecture"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Next")).toBeInTheDocument();
+      expect(screen.getByText("Simplify")).toBeInTheDocument();
+    });
+  });
+
+  it("advances to next slide when Next is clicked", async () => {
+    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
+    vi.mocked(performAction).mockResolvedValue(mockSecondSlide);
+
+    render(<Home />);
+
+    // Start lecture
+    const input = screen.getByPlaceholderText(/Enter a topic/);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByText("Start Lecture"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Next")).toBeInTheDocument();
+    });
+
+    // Click Next
+    fireEvent.click(screen.getByText("Next"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Second Slide")).toBeInTheDocument();
+      expect(screen.getByText("Slide 2 of 6")).toBeInTheDocument();
+    });
+
+    expect(performAction).toHaveBeenCalledWith("test-session-123", "advance_main_thread");
+  });
+
+  it("shows Previous button on second slide", async () => {
+    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
+    vi.mocked(performAction).mockResolvedValue(mockSecondSlide);
+
+    render(<Home />);
+
+    const input = screen.getByPlaceholderText(/Enter a topic/);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByText("Start Lecture"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Next")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Next"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Previous")).toBeInTheDocument();
+    });
+  });
+
+  it("resets to topic input when Start new lecture is clicked", async () => {
+    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
+
+    render(<Home />);
+
+    const input = screen.getByPlaceholderText(/Enter a topic/);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByText("Start Lecture"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Introduction to Test Topic")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Start new lecture"));
+
+    expect(screen.getByPlaceholderText(/Enter a topic/)).toBeInTheDocument();
+    expect(screen.getByText("Start Lecture")).toBeInTheDocument();
   });
 });
