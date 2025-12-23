@@ -134,7 +134,7 @@ Return a JSON object with:
 1. "content": {{"title": "...", "text": "2-4 educational sentences"}}
 2. "controls": An array of interactive options. Each control has:
    - "label": The button text (be specific and contextual!)
-   - "action": One of ["advance_main_thread", "go_previous", "deep_dive", "clarify_slide", "show_example", "quiz_me", "extend_lecture", "show_references", "show_concept_map"]
+   - "action": One of ["advance_main_thread", "go_previous", "deep_dive", "clarify_slide", "regenerate_slide", "show_example", "quiz_me", "extend_lecture", "show_references", "show_concept_map"]
    - "params": Optional object with context (e.g., {{"concept": "specific term from this slide"}})
 
 IMPORTANT for controls:
@@ -143,6 +143,7 @@ IMPORTANT for controls:
 - If NOT the first slide, ALWAYS include a "Previous" button (action: go_previous)
 - Identify 1-2 key concepts/terms from YOUR content that could be deep-dived (action: deep_dive, params: {{"concept": "..."}})
 - Always include a "Clarify This" option (action: clarify_slide) for students who want more explanation
+- Always include a "Regenerate" button (action: regenerate_slide) to let students request a different version
 - Optionally include "Show Example" or "Quiz Me" if appropriate for the content
 - Always include "View References" button (action: show_references) to let students find more resources
 - Always include "Concept Map" button (action: show_concept_map) for visualizing topic structure
@@ -159,7 +160,8 @@ Example response (for slide 2 of 6):
     {{"label": "Deep Dive: Ownership Rules", "action": "deep_dive", "params": {{"concept": "ownership rules"}}}},
     {{"label": "Deep Dive: Data Races", "action": "deep_dive", "params": {{"concept": "data races"}}}},
     {{"label": "Show Code Example", "action": "show_example", "params": {{"type": "borrow_checker_error"}}}},
-    {{"label": "Clarify This", "action": "clarify_slide"}}
+    {{"label": "Clarify This", "action": "clarify_slide"}},
+    {{"label": "Regenerate", "action": "regenerate_slide"}}
   ]
 }}
 
@@ -191,11 +193,13 @@ Return a JSON object with clarified content AND contextual controls:
     {{"label": "Next: [topic]", "action": "advance_main_thread"}},
     {{"label": "Previous", "action": "go_previous"}},
     {{"label": "Deep Dive: [concept]", "action": "deep_dive", "params": {{"concept": "..."}}}},
-    {{"label": "Quiz Me", "action": "quiz_me"}}
+    {{"label": "Quiz Me", "action": "quiz_me"}},
+    {{"label": "Regenerate", "action": "regenerate_slide"}}
   ]
 }}
 
 Keep controls relevant to the clarified content. Include navigation buttons as appropriate.
+Always include "Regenerate" button to let students request a different version.
 Return ONLY the JSON object."""
 
 
@@ -884,8 +888,9 @@ class MockLLMProvider:
             )
         )
 
-        # Always have simplify
+        # Always have clarify and regenerate
         controls.append(InteractiveControl(label="Clarify This", action="clarify_slide"))
+        controls.append(InteractiveControl(label="Regenerate", action="regenerate_slide"))
 
         # Quiz option for non-intro/conclusion slides
         if context.slide_index not in [0, context.total_slides - 1]:
@@ -919,6 +924,7 @@ class MockLLMProvider:
             controls.append(InteractiveControl(label="Previous", action="go_previous"))
 
         controls.append(InteractiveControl(label="Quiz Me", action="quiz_me"))
+        controls.append(InteractiveControl(label="Regenerate", action="regenerate_slide"))
 
         clarified_content = SlideContent(
             title=f"{content.title} - Clarified",
