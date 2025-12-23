@@ -6,16 +6,13 @@ from pytest_bdd import given, parsers, scenario, then, when
 
 from src.llm import MockLLMProvider
 from src.main import app, set_llm_provider
-from src.session import clear_all_sessions
 
 
 @pytest.fixture(autouse=True)
 def setup():
-    """Setup mock LLM and clean sessions."""
+    """Setup mock LLM for all tests."""
     set_llm_provider(MockLLMProvider())
-    clear_all_sessions()
     yield
-    clear_all_sessions()
 
 
 @pytest.fixture
@@ -155,7 +152,10 @@ def see_navigation_options(context: dict) -> None:
     controls = context["slide"]["interactive_controls"]
     assert len(controls) > 0
     labels = [c["label"] for c in controls]
-    assert "Next" in labels or "Simplify" in labels
+    # Dynamic A2UI: buttons have contextual labels like "Next: Topic" or "Simplify This"
+    has_next = any("Next" in label for label in labels)
+    has_simplify = any("Simplify" in label for label in labels)
+    assert has_next or has_simplify
 
 
 @then("I should see the next slide in the main thread")

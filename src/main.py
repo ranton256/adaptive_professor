@@ -1,18 +1,30 @@
 """FastAPI application entry point."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from src.components.slides import InteractiveControl, SlideContent, SlidePayload
 from src.config import settings
-from src.llm import get_llm_provider
-from src.session import create_session, get_session, update_session
+from src.database import init_db
+from src.llm import SlideGenerationContext, get_llm_provider
+from src.session import SlideState, create_session, get_session, update_session
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler - initialize database on startup."""
+    await init_db()
+    yield
+
 
 app = FastAPI(
     title=settings.app_name,
     description="A2UI Adaptive Professor - Interactive Learning Deck",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS for frontend communication
@@ -62,25 +74,27 @@ class ActionRequest(BaseModel):
     params: dict | None = None
 
 
-def build_slide_payload(session, content: SlideContent) -> SlidePayload:
-    """Build a slide payload with appropriate controls."""
-    controls = []
+def get_generation_context(session) -> SlideGenerationContext:
+    """Build generation context from session state."""
+    return SlideGenerationContext(
+        topic=session.topic,
+        slide_title=session.outline[session.current_index],
+        slide_index=session.current_index,
+        total_slides=session.total_slides,
+        outline=session.outline,
+        is_first=session.is_first,
+        is_last=session.is_last,
+    )
 
-    # Add navigation controls based on position
-    if session.has_next:
-        controls.append(InteractiveControl(label="Next", action="advance_main_thread"))
-    if session.has_previous:
-        controls.append(InteractiveControl(label="Previous", action="go_previous"))
 
-    # Always allow simplification
-    controls.append(InteractiveControl(label="Simplify", action="simplify_slide"))
-
+def build_slide_payload(session, slide_state: SlideState) -> SlidePayload:
+    """Build a slide payload from session and slide state."""
     return SlidePayload(
         slide_id=f"slide_{session.current_index + 1:02d}",
         session_id=session.session_id,
         layout="default",
-        content=content,
-        interactive_controls=controls,
+        content=slide_state.content,
+        interactive_controls=slide_state.controls,  # LLM-generated controls!
         slide_index=session.current_index,
         total_slides=session.total_slides,
     )
@@ -101,21 +115,24 @@ async def start_lecture(request: StartLectureRequest) -> SlidePayload:
     outline = llm.generate_lecture_outline(request.topic)
 
     # Create session
-    session = create_session(request.topic, outline)
+    session = await create_session(request.topic, outline)
 
-    # Generate first slide content
-    first_title = outline[0]
-    content = llm.generate_slide_content(request.topic, first_title, 0)
-    session.slides[0] = content
-    update_session(session)
+    # Generate first slide with contextual controls
+    context = get_generation_context(session)
+    generated = llm.generate_slide(context)
 
-    return build_slide_payload(session, content)
+    # Store slide state
+    slide_state = SlideState(content=generated.content, controls=generated.controls)
+    session.slides[0] = slide_state
+    await update_session(session)
+
+    return build_slide_payload(session, slide_state)
 
 
 @app.post("/api/lecture/{session_id}/action", response_model=SlidePayload)
 async def perform_action(session_id: str, request: ActionRequest) -> SlidePayload:
     """Perform an action on the current lecture session."""
-    session = get_session(session_id)
+    session = await get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -125,31 +142,234 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         if not session.has_next:
             raise HTTPException(status_code=400, detail="No more slides")
 
+        # Exit deep dive if we were in one
+        session.in_deep_dive = False
+        session.deep_dive_parent_index = None
+        session.deep_dive_concept = None
+
         session.current_index += 1
 
-        # Generate slide content if not already cached
+        # Generate slide if not already cached
         if session.current_index not in session.slides:
-            title = session.outline[session.current_index]
-            content = llm.generate_slide_content(session.topic, title, session.current_index)
-            session.slides[session.current_index] = content
+            context = get_generation_context(session)
+            generated = llm.generate_slide(context)
+            session.slides[session.current_index] = SlideState(
+                content=generated.content, controls=generated.controls
+            )
 
-        update_session(session)
+        await update_session(session)
         return build_slide_payload(session, session.slides[session.current_index])
 
     elif request.action == "go_previous":
         if not session.has_previous:
             raise HTTPException(status_code=400, detail="No previous slide")
 
+        # Exit deep dive if we were in one
+        session.in_deep_dive = False
+        session.deep_dive_parent_index = None
+        session.deep_dive_concept = None
+
         session.current_index -= 1
-        update_session(session)
+        await update_session(session)
         return build_slide_payload(session, session.slides[session.current_index])
 
     elif request.action == "simplify_slide":
-        current_content = session.slides[session.current_index]
-        simplified = llm.simplify_content(current_content)
-        session.slides[session.current_index] = simplified
-        update_session(session)
-        return build_slide_payload(session, simplified)
+        current_state = session.slides[session.current_index]
+        context = get_generation_context(session)
+        generated = llm.simplify_slide(current_state.content, context)
+        session.slides[session.current_index] = SlideState(
+            content=generated.content, controls=generated.controls
+        )
+        await update_session(session)
+        return build_slide_payload(session, session.slides[session.current_index])
+
+    elif request.action == "deep_dive":
+        if not request.params or "concept" not in request.params:
+            raise HTTPException(status_code=400, detail="deep_dive requires 'concept' parameter")
+
+        concept = request.params["concept"]
+        parent_context = get_generation_context(session)
+
+        # Mark that we're in a deep dive
+        session.in_deep_dive = True
+        session.deep_dive_parent_index = session.current_index
+        session.deep_dive_concept = concept
+
+        # Generate deep dive slide
+        generated = llm.handle_deep_dive(session.topic, concept, parent_context)
+
+        # Store as a special "deep dive" slide (use negative index or special key)
+        deep_dive_key = -1  # Special key for current deep dive
+        session.slides[deep_dive_key] = SlideState(
+            content=generated.content, controls=generated.controls
+        )
+
+        await update_session(session)
+
+        # Return the deep dive slide
+        return SlidePayload(
+            slide_id=f"deep_dive_{concept.replace(' ', '_')}",
+            session_id=session.session_id,
+            layout="deep_dive",
+            content=generated.content,
+            interactive_controls=generated.controls,
+            slide_index=session.current_index,  # Keep showing parent index
+            total_slides=session.total_slides,
+        )
+
+    elif request.action == "return_to_main":
+        # Return to a main slide from any detour (deep dive, example, quiz)
+        # Get the target slide index from params, or use current index
+        if request.params and "slide_index" in request.params:
+            session.current_index = request.params["slide_index"]
+
+        # Clear deep dive state if we were in one
+        session.in_deep_dive = False
+        session.deep_dive_parent_index = None
+        session.deep_dive_concept = None
+
+        await update_session(session)
+        return build_slide_payload(session, session.slides[session.current_index])
+
+    elif request.action == "show_example":
+        # Generate an example for the current slide content
+        current_state = session.slides.get(session.current_index) or session.slides.get(-1)
+        if not current_state:
+            raise HTTPException(status_code=400, detail="No current slide")
+
+        context = get_generation_context(session)
+        example_type = request.params.get("type", "code") if request.params else "code"
+
+        try:
+            generated = llm.generate_example(current_state.content, context, example_type)
+        except Exception as e:
+            # If LLM fails, return an error slide instead of crashing
+            error_content = SlideContent(
+                title="Example Generation Failed",
+                text=f"Sorry, I couldn't generate an example. Error: {str(e)[:200]}",
+            )
+            error_controls = [
+                InteractiveControl(
+                    label="Return to Slide",
+                    action="return_to_main",
+                    params={"slide_index": session.current_index},
+                ),
+                InteractiveControl(label="Try Again", action="show_example"),
+            ]
+            return SlidePayload(
+                slide_id=f"example_error_{session.current_index}",
+                session_id=session.session_id,
+                layout="example",
+                content=error_content,
+                interactive_controls=error_controls,
+                slide_index=session.current_index,
+                total_slides=session.total_slides,
+            )
+
+        # Store as example slide
+        example_key = -2  # Special key for example slides
+        session.slides[example_key] = SlideState(
+            content=generated.content, controls=generated.controls
+        )
+        await update_session(session)
+
+        return SlidePayload(
+            slide_id=f"example_{session.current_index}",
+            session_id=session.session_id,
+            layout="example",
+            content=generated.content,
+            interactive_controls=generated.controls,
+            slide_index=session.current_index,
+            total_slides=session.total_slides,
+        )
+
+    elif request.action == "quiz_me":
+        # Generate a quiz question for the current content
+        current_state = session.slides.get(session.current_index) or session.slides.get(-1)
+        if not current_state:
+            raise HTTPException(status_code=400, detail="No current slide")
+
+        context = get_generation_context(session)
+
+        try:
+            generated = llm.generate_quiz(current_state.content, context)
+        except Exception as e:
+            error_content = SlideContent(
+                title="Quiz Generation Failed",
+                text=f"Sorry, I couldn't generate a quiz. Error: {str(e)[:200]}",
+            )
+            error_controls = [
+                InteractiveControl(
+                    label="Return to Slide",
+                    action="return_to_main",
+                    params={"slide_index": session.current_index},
+                ),
+                InteractiveControl(label="Try Again", action="quiz_me"),
+            ]
+            return SlidePayload(
+                slide_id=f"quiz_error_{session.current_index}",
+                session_id=session.session_id,
+                layout="quiz",
+                content=error_content,
+                interactive_controls=error_controls,
+                slide_index=session.current_index,
+                total_slides=session.total_slides,
+            )
+
+        # Store as quiz slide
+        quiz_key = -3  # Special key for quiz slides
+        session.slides[quiz_key] = SlideState(
+            content=generated.content, controls=generated.controls
+        )
+        await update_session(session)
+
+        return SlidePayload(
+            slide_id=f"quiz_{session.current_index}",
+            session_id=session.session_id,
+            layout="quiz",
+            content=generated.content,
+            interactive_controls=generated.controls,
+            slide_index=session.current_index,
+            total_slides=session.total_slides,
+        )
+
+    elif request.action == "quiz_answer":
+        # Handle quiz answer selection
+        if not request.params:
+            raise HTTPException(status_code=400, detail="quiz_answer requires params")
+
+        answer = request.params.get("answer", "?")
+        is_correct = request.params.get("correct", False)
+        explanation = request.params.get("explanation", "")
+
+        # Build result content
+        if is_correct:
+            result_title = f"Correct! ({answer})"
+            result_text = f"**Well done!** {explanation}"
+        else:
+            result_title = f"Incorrect ({answer})"
+            result_text = f"**Not quite.** {explanation}"
+
+        result_content = SlideContent(title=result_title, text=result_text)
+        result_controls = [
+            InteractiveControl(
+                label="Return to Slide",
+                action="return_to_main",
+                params={"slide_index": session.current_index},
+            ),
+            InteractiveControl(label="Try Another Question", action="quiz_me"),
+            InteractiveControl(label="Continue Lecture", action="advance_main_thread"),
+        ]
+
+        return SlidePayload(
+            slide_id=f"quiz_result_{session.current_index}",
+            session_id=session.session_id,
+            layout="quiz_result",
+            content=result_content,
+            interactive_controls=result_controls,
+            slide_index=session.current_index,
+            total_slides=session.total_slides,
+        )
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")

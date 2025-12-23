@@ -42,3 +42,6 @@ node_modules/
 
 # Temp files
 *.tmp
+
+# Database
+data/

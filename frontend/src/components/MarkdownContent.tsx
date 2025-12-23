@@ -1,0 +1,198 @@
+"use client";
+
+import React, { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import rehypeHighlight from "rehype-highlight";
+import mermaid from "mermaid";
+import "katex/dist/katex.min.css";
+import "highlight.js/styles/github-dark.css";
+import { CodeExecutor } from "./CodeExecutor";
+
+/**
+ * Recursively extract text content from React children.
+ * This handles the case where rehype-highlight has transformed
+ * code into nested span elements for syntax highlighting.
+ */
+function extractTextFromChildren(children: React.ReactNode): string {
+  if (typeof children === "string") return children;
+  if (typeof children === "number") return String(children);
+  if (!children) return "";
+  if (Array.isArray(children)) {
+    return children.map(extractTextFromChildren).join("");
+  }
+  if (React.isValidElement(children)) {
+    const props = children.props as { children?: React.ReactNode };
+    return extractTextFromChildren(props.children);
+  }
+  return "";
+}
+
+// Initialize mermaid
+mermaid.initialize({
+  startOnLoad: false,
+  theme: "dark",
+  securityLevel: "loose",
+  fontFamily: "inherit",
+});
+
+interface MermaidDiagramProps {
+  code: string;
+}
+
+function MermaidDiagram({ code }: MermaidDiagramProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const renderDiagram = async () => {
+      if (!containerRef.current) return;
+
+      try {
+        const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+        const { svg } = await mermaid.render(id, code);
+        setSvg(svg);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to render diagram");
+        console.error("Mermaid rendering error:", err);
+      }
+    };
+
+    renderDiagram();
+  }, [code]);
+
+  if (error) {
+    return (
+      <div className="my-4 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-900/20">
+        <p className="font-semibold text-amber-800 dark:text-amber-200">
+          Diagram could not be rendered
+        </p>
+        <details className="mt-2">
+          <summary className="cursor-pointer text-sm text-amber-700 dark:text-amber-300">
+            Show diagram code
+          </summary>
+          <pre className="mt-2 overflow-x-auto rounded bg-zinc-100 p-2 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+            {code}
+          </pre>
+        </details>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="my-4 flex justify-center overflow-x-auto rounded-lg bg-zinc-100 p-4 dark:bg-zinc-800"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
+interface MarkdownContentProps {
+  content: string;
+}
+
+export function MarkdownContent({ content }: MarkdownContentProps) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex, rehypeHighlight]}
+      components={{
+        // Handle code blocks - detect mermaid
+        pre: ({ children }) => {
+          return (
+            <pre className="my-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm">
+              {children}
+            </pre>
+          );
+        },
+        // Style code - detect mermaid and executable code blocks
+        code: ({ children, className }) => {
+          const match = /language-(\w+)/.exec(className || "");
+          const language = match ? match[1] : "";
+          // Extract raw text from children (handles syntax-highlighted spans)
+          const codeString = extractTextFromChildren(children).replace(/\n$/, "");
+
+          // Render mermaid diagrams
+          if (language === "mermaid") {
+            return <MermaidDiagram code={codeString} />;
+          }
+
+          // Execute JavaScript/TypeScript code that contains chartConfig
+          if (
+            (language === "javascript" ||
+              language === "js" ||
+              language === "typescript" ||
+              language === "ts") &&
+            codeString.includes("chartConfig")
+          ) {
+            return <CodeExecutor code={codeString} language={language} />;
+          }
+
+          // Inline code (no language class)
+          const isInline = !className;
+          if (isInline) {
+            return (
+              <code className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-sm dark:bg-zinc-700">
+                {children}
+              </code>
+            );
+          }
+
+          // Regular code block
+          return <code className={className}>{children}</code>;
+        },
+        // Style paragraphs
+        p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
+        // Style lists
+        ul: ({ children }) => <ul className="mb-4 ml-6 list-disc space-y-1">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-4 ml-6 list-decimal space-y-1">{children}</ol>,
+        // Style headings
+        h1: ({ children }) => <h1 className="mb-4 text-2xl font-bold">{children}</h1>,
+        h2: ({ children }) => <h2 className="mb-3 text-xl font-bold">{children}</h2>,
+        h3: ({ children }) => <h3 className="mb-2 text-lg font-semibold">{children}</h3>,
+        // Style blockquotes
+        blockquote: ({ children }) => (
+          <blockquote className="my-4 border-l-4 border-blue-500 pl-4 italic text-zinc-600 dark:text-zinc-400">
+            {children}
+          </blockquote>
+        ),
+        // Style tables
+        table: ({ children }) => (
+          <div className="my-4 overflow-x-auto">
+            <table className="min-w-full border-collapse border border-zinc-300 dark:border-zinc-700">
+              {children}
+            </table>
+          </div>
+        ),
+        th: ({ children }) => (
+          <th className="border border-zinc-300 bg-zinc-100 px-4 py-2 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-800">
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td className="border border-zinc-300 px-4 py-2 dark:border-zinc-700">{children}</td>
+        ),
+        // Style strong/bold
+        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+        // Style links
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {children}
+          </a>
+        ),
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}

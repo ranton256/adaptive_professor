@@ -8,7 +8,8 @@ class Settings(BaseSettings):
 
     app_name: str = "Adaptive Professor"
     debug: bool = False
-    llm_provider: str = "anthropic"
+    llm_provider: str = "gemini"  # Default to Gemini Flash
+    gemini_api_key: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     a2ui_renderer_url: str = "http://localhost:3000"

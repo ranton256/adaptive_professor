@@ -4,23 +4,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.llm import MockLLMProvider
-from src.main import app, set_llm_provider
-from src.session import clear_all_sessions
+from src.main import set_llm_provider
 
 
 @pytest.fixture(autouse=True)
 def setup_mock_llm():
     """Use mock LLM provider for all tests."""
     set_llm_provider(MockLLMProvider())
-    clear_all_sessions()
     yield
-    clear_all_sessions()
-
-
-@pytest.fixture
-def client() -> TestClient:
-    """Create a test client."""
-    return TestClient(app)
 
 
 def test_start_lecture_returns_slide(client: TestClient) -> None:
@@ -52,11 +43,12 @@ def test_start_lecture_includes_interactive_controls(client: TestClient) -> None
 
 
 def test_start_lecture_has_next_button(client: TestClient) -> None:
-    """The first slide should have a Next button."""
+    """The first slide should have a Next button (contextual label)."""
     response = client.post("/api/lecture/start", json={"topic": "Test"})
     data = response.json()
     labels = [c["label"] for c in data["interactive_controls"]]
-    assert "Next" in labels
+    # Dynamic A2UI: button label includes next slide topic, e.g., "Next: Core Concepts"
+    assert any(label.startswith("Next:") for label in labels)
 
 
 def test_start_lecture_includes_slide_progress(client: TestClient) -> None:
@@ -196,7 +188,7 @@ def test_first_slide_has_no_previous_button(client: TestClient) -> None:
     response = client.post("/api/lecture/start", json={"topic": "Test"})
     data = response.json()
     labels = [c["label"] for c in data["interactive_controls"]]
-    assert "Previous" not in labels
+    assert not any("Previous" in label for label in labels)
 
 
 def test_second_slide_has_previous_button(client: TestClient) -> None:
@@ -211,7 +203,7 @@ def test_second_slide_has_previous_button(client: TestClient) -> None:
 
     data = action_response.json()
     labels = [c["label"] for c in data["interactive_controls"]]
-    assert "Previous" in labels
+    assert any("Previous" in label for label in labels)
 
 
 def test_last_slide_has_no_next_button(client: TestClient) -> None:
@@ -229,4 +221,140 @@ def test_last_slide_has_no_next_button(client: TestClient) -> None:
 
     data = response.json()
     labels = [c["label"] for c in data["interactive_controls"]]
-    assert "Next" not in labels
+    # No "Next:" button on the last slide
+    assert not any(label.startswith("Next:") for label in labels)
+
+
+def test_deep_dive_action_returns_deep_dive_slide(client: TestClient) -> None:
+    """Deep dive action should return a deep dive slide."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    action_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "deep_dive", "params": {"concept": "ownership"}},
+    )
+
+    assert action_response.status_code == 200
+    data = action_response.json()
+    assert data["layout"] == "deep_dive"
+    assert "ownership" in data["content"]["title"].lower()
+
+
+def test_deep_dive_has_return_button(client: TestClient) -> None:
+    """Deep dive slide should have a return button."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    action_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "deep_dive", "params": {"concept": "ownership"}},
+    )
+
+    data = action_response.json()
+    labels = [c["label"] for c in data["interactive_controls"]]
+    # Should have a "Return to: ..." button
+    assert any("Return to:" in label for label in labels)
+
+
+def test_deep_dive_requires_concept_param(client: TestClient) -> None:
+    """Deep dive action requires a concept parameter."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "deep_dive"},  # No params
+    )
+
+    assert response.status_code == 400
+
+
+def test_return_to_main_action(client: TestClient) -> None:
+    """Return to main action should exit deep dive."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    # Enter deep dive
+    client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "deep_dive", "params": {"concept": "ownership"}},
+    )
+
+    # Return to main
+    action_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "return_to_main", "params": {"slide_index": 0}},
+    )
+
+    assert action_response.status_code == 200
+    data = action_response.json()
+    assert data["layout"] == "default"
+    assert data["slide_index"] == 0
+
+
+def test_return_to_main_works_from_example(client: TestClient) -> None:
+    """Return to main should work from example slides."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    # Go to example
+    client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "show_example"},
+    )
+
+    # Return to main
+    response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "return_to_main", "params": {"slide_index": 0}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["layout"] == "default"
+
+
+def test_slides_have_contextual_deep_dive_controls(client: TestClient) -> None:
+    """Slides should have contextual deep dive options."""
+    response = client.post("/api/lecture/start", json={"topic": "Rust"})
+    data = response.json()
+
+    # Find controls with deep_dive action
+    deep_dive_controls = [c for c in data["interactive_controls"] if c["action"] == "deep_dive"]
+
+    assert len(deep_dive_controls) > 0
+    # Deep dive controls should have concept params
+    for control in deep_dive_controls:
+        assert control.get("params") is not None
+        assert "concept" in control["params"]
+
+
+def test_multiple_examples_then_return(client: TestClient) -> None:
+    """Return to main should work after multiple examples."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    # First example
+    example1_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "show_example"},
+    )
+    assert example1_response.status_code == 200
+    assert example1_response.json()["session_id"] == session_id
+
+    # Second example (another example)
+    example2_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "show_example"},
+    )
+    assert example2_response.status_code == 200
+    assert example2_response.json()["session_id"] == session_id
+
+    # Return to main
+    return_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "return_to_main", "params": {"slide_index": 0}},
+    )
+    assert return_response.status_code == 200
+    assert return_response.json()["layout"] == "default"
+    assert return_response.json()["session_id"] == session_id

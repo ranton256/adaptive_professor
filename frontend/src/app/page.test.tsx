@@ -163,7 +163,11 @@ describe("Home", () => {
       expect(screen.getByText("Slide 2 of 6")).toBeInTheDocument();
     });
 
-    expect(performAction).toHaveBeenCalledWith("test-session-123", "advance_main_thread");
+    expect(performAction).toHaveBeenCalledWith(
+      "test-session-123",
+      "advance_main_thread",
+      undefined
+    );
   });
 
   it("shows Previous button on second slide", async () => {
@@ -200,7 +204,7 @@ describe("Home", () => {
       expect(screen.getByText("Introduction to Test Topic")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText("Start new lecture"));
+    fireEvent.click(screen.getByText("New lecture"));
 
     expect(screen.getByPlaceholderText(/Enter a topic/)).toBeInTheDocument();
     expect(screen.getByText("Start Lecture")).toBeInTheDocument();
