@@ -369,6 +369,22 @@ Return ONLY the JSON object."""
 def get_references_prompt(topic: str, outline: list[str], current_index: int) -> str:
     covered_slides = outline[: current_index + 1]
     covered_str = "\n".join(f"- {t}" for t in covered_slides)
+    is_last_slide = current_index >= len(outline) - 1
+
+    # Build controls based on position in lecture
+    controls = [
+        f'{{"label": "Return to Lecture", "action": "return_to_main", "params": {{"slide_index": {current_index}}}}}'
+    ]
+    if not is_last_slide:
+        next_title = (
+            outline[current_index + 1] if current_index + 1 < len(outline) else "next topic"
+        )
+        controls.append(f'{{"label": "Next: {next_title}", "action": "advance_main_thread"}}')
+    else:
+        controls.append('{"label": "Extend Lecture", "action": "extend_lecture"}')
+
+    controls_str = ",\n    ".join(controls)
+
     return f"""You are creating a references slide for a lecture on "{topic}".
 
 The lecture has covered these topics so far:
@@ -391,8 +407,7 @@ Return a JSON object:
     "text": "A formatted markdown list of resources with links, organized by category. Use real URLs."
   }},
   "controls": [
-    {{"label": "Return to Lecture", "action": "return_to_main", "params": {{"slide_index": {current_index}}}}},
-    {{"label": "Continue Learning", "action": "advance_main_thread"}}
+    {controls_str}
   ]
 }}
 
@@ -927,14 +942,24 @@ class MockLLMProvider:
         self, topic: str, outline: list[str], current_index: int
     ) -> GeneratedSlide:
         """Generate a mock references slide."""
+        is_last_slide = current_index >= len(outline) - 1
+
         controls = [
             InteractiveControl(
                 label="Return to Lecture",
                 action="return_to_main",
                 params={"slide_index": current_index},
             ),
-            InteractiveControl(label="Continue Learning", action="advance_main_thread"),
         ]
+
+        # Add contextual navigation control
+        if not is_last_slide:
+            next_title = outline[current_index + 1] if current_index + 1 < len(outline) else "Next"
+            controls.append(
+                InteractiveControl(label=f"Next: {next_title}", action="advance_main_thread")
+            )
+        else:
+            controls.append(InteractiveControl(label="Extend Lecture", action="extend_lecture"))
 
         references_content = SlideContent(
             title="References & Further Reading",
