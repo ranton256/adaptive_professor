@@ -36,6 +36,14 @@ mermaid.initialize({
   theme: "dark",
   securityLevel: "loose",
   fontFamily: "inherit",
+  mindmap: {
+    padding: 20,
+    useMaxWidth: false,
+  },
+  flowchart: {
+    useMaxWidth: false,
+    padding: 20,
+  },
 });
 
 interface MermaidDiagramProps {
@@ -67,11 +75,34 @@ function MermaidDiagram({ code, onNodeClick }: MermaidDiagramProps) {
     renderDiagram();
   }, [code]);
 
-  // Attach click handlers to mindmap nodes after SVG is rendered
+  // Fix SVG viewBox to prevent clipping and attach click handlers
   useEffect(() => {
-    if (!containerRef.current || !svg || !onNodeClick) return;
+    if (!containerRef.current || !svg) return;
 
     const container = containerRef.current;
+    const svgElement = container.querySelector("svg");
+
+    // Fix SVG to prevent clipping
+    if (svgElement) {
+      svgElement.style.overflow = "visible";
+      svgElement.style.maxWidth = "none";
+
+      // Expand viewBox if it exists to add padding
+      const viewBox = svgElement.getAttribute("viewBox");
+      if (viewBox) {
+        const [x, y, width, height] = viewBox.split(" ").map(Number);
+        // Add padding to viewBox to prevent text clipping
+        const padding = 40;
+        svgElement.setAttribute(
+          "viewBox",
+          `${x - padding} ${y - padding} ${width + padding * 2} ${height + padding * 2}`
+        );
+      }
+    }
+
+    // Attach click handlers if callback provided
+    if (!onNodeClick) return;
+
     // Find all text elements and their parent groups in the mindmap
     const nodes = container.querySelectorAll(".mindmap-node, .node, g[class*='node']");
 
@@ -162,8 +193,12 @@ function MermaidDiagram({ code, onNodeClick }: MermaidDiagramProps) {
       <div className="overflow-auto p-4" style={{ maxHeight: "70vh" }}>
         <div
           ref={containerRef}
-          className="flex min-w-max justify-center transition-transform duration-200"
-          style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }}
+          className="flex min-w-max justify-center transition-transform duration-200 [&_svg]:overflow-visible [&_svg]:max-w-none"
+          style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: "top center",
+            padding: "20px", // Extra padding to prevent edge clipping
+          }}
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       </div>
