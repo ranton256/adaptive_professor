@@ -159,38 +159,112 @@ async def validate_urls(
     return list(results)
 
 
-def filter_valid_urls_in_markdown(text: str, valid_urls: set[str]) -> str:
-    """Remove markdown links with invalid URLs from text.
+def remove_invalid_links_from_markdown(text: str, valid_urls: set[str]) -> str:
+    """Remove lines containing invalid URLs from markdown text.
 
-    Preserves the structure but removes broken links.
+    Completely removes list items with broken links and cleans up empty sections.
     """
+    lines = text.split("\n")
+
     # Pattern for markdown links: [text](url)
     markdown_link_pattern = r"\[([^\]]+)\]\(([^)]+)\)"
 
-    def replace_invalid_link(match: re.Match) -> str:
-        link_text = match.group(1)
-        url = match.group(2)
-        if url in valid_urls:
-            return match.group(0)  # Keep the link as-is
-        # Replace with just the text (no link) and mark as unavailable
-        return f"~~{link_text}~~ (link unavailable)"
+    # First pass: mark lines to keep/remove
+    keep_line = []
+    for line in lines:
+        match = re.search(markdown_link_pattern, line)
+        if match:
+            url = match.group(2)
+            if url.startswith("http") and url not in valid_urls:
+                # Remove this line - it has a broken link
+                keep_line.append(False)
+            else:
+                # Valid link or non-http link, keep it
+                keep_line.append(True)
+        else:
+            # No link in this line, keep it for now
+            keep_line.append(True)
 
-    return re.sub(markdown_link_pattern, replace_invalid_link, text)
+    # Second pass: remove headers that have no content after them
+    final_keep = keep_line.copy()
+    i = 0
+    while i < len(lines):
+        if lines[i].strip().startswith("#"):
+            # This is a header - check if it has any content before the next header
+            has_content = False
+            j = i + 1
+            while j < len(lines):
+                if lines[j].strip().startswith("#"):
+                    # Hit another header
+                    break
+                if keep_line[j] and lines[j].strip():
+                    # Found non-empty content that we're keeping
+                    has_content = True
+                    break
+                j += 1
+
+            if not has_content:
+                # Mark this header for removal
+                final_keep[i] = False
+        i += 1
+
+    # Build result, filtering out removed lines
+    result_lines = []
+    for i, line in enumerate(lines):
+        if final_keep[i]:
+            result_lines.append(line)
+
+    # Clean up multiple consecutive blank lines
+    cleaned_lines = []
+    prev_blank = False
+    for line in result_lines:
+        is_blank = line.strip() == ""
+        if is_blank and prev_blank:
+            continue
+        cleaned_lines.append(line)
+        prev_blank = is_blank
+
+    # Remove trailing blank lines
+    while cleaned_lines and cleaned_lines[-1].strip() == "":
+        cleaned_lines.pop()
+
+    return "\n".join(cleaned_lines)
 
 
-async def validate_and_filter_references(markdown_text: str) -> tuple[str, int, int]:
+@dataclass
+class ValidationResult:
+    """Result of validating references."""
+
+    filtered_text: str
+    total_links: int
+    valid_links: int
+    needs_regeneration: bool
+
+
+async def validate_and_filter_references(
+    markdown_text: str,
+    min_valid_ratio: float = 0.5,
+    min_valid_links: int = 3,
+) -> ValidationResult:
     """Validate all URLs in a markdown references section.
 
     Args:
         markdown_text: The markdown text containing reference links
+        min_valid_ratio: Minimum ratio of valid links to trigger regeneration (default 0.5)
+        min_valid_links: Minimum number of valid links required (default 3)
 
     Returns:
-        Tuple of (filtered_text, total_links, valid_links)
+        ValidationResult with filtered text and regeneration flag
     """
     urls = extract_urls_from_markdown(markdown_text)
 
     if not urls:
-        return markdown_text, 0, 0
+        return ValidationResult(
+            filtered_text=markdown_text,
+            total_links=0,
+            valid_links=0,
+            needs_regeneration=False,
+        )
 
     results = await validate_urls(urls)
 
@@ -198,6 +272,16 @@ async def validate_and_filter_references(markdown_text: str) -> tuple[str, int, 
     total = len(urls)
     valid = len(valid_urls)
 
-    filtered_text = filter_valid_urls_in_markdown(markdown_text, valid_urls)
+    # Determine if regeneration is needed
+    valid_ratio = valid / total if total > 0 else 0
+    needs_regeneration = valid < min_valid_links or valid_ratio < min_valid_ratio
 
-    return filtered_text, total, valid
+    # Remove invalid links entirely
+    filtered_text = remove_invalid_links_from_markdown(markdown_text, valid_urls)
+
+    return ValidationResult(
+        filtered_text=filtered_text,
+        total_links=total,
+        valid_links=valid,
+        needs_regeneration=needs_regeneration,
+    )

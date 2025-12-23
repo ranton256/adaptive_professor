@@ -11,7 +11,7 @@ from src.config import settings
 from src.database import init_db
 from src.llm import SlideGenerationContext, get_llm_provider
 from src.session import SlideState, create_session, get_session, update_session
-from src.url_validator import validate_and_filter_references
+from src.url_validator import ValidationResult, validate_and_filter_references
 
 
 @asynccontextmanager
@@ -393,31 +393,42 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         return build_slide_payload(session, session.slides[session.current_index])
 
     elif request.action == "show_references":
-        # Generate a references slide with curated learning resources
-        generated = llm.generate_references(session.topic, session.outline, session.current_index)
+        # Generate references with URL validation and regeneration if needed
+        MAX_REGENERATION_ATTEMPTS = 3
+        best_result: ValidationResult | None = None
+        best_generated = None
 
-        # Validate all URLs in the references and filter out broken ones
-        validated_text, total_links, valid_links = await validate_and_filter_references(
-            generated.content.text
-        )
-
-        # Add validation summary to the content
-        if total_links > 0 and valid_links < total_links:
-            validation_note = (
-                f"\n\n---\n*Note: {valid_links} of {total_links} links verified as accessible.*"
+        for _attempt in range(MAX_REGENERATION_ATTEMPTS):
+            # Generate a references slide with curated learning resources
+            generated = llm.generate_references(
+                session.topic, session.outline, session.current_index
             )
-            validated_text += validation_note
 
-        # Create updated content with validated links
+            # Validate all URLs and filter out broken ones
+            result = await validate_and_filter_references(generated.content.text)
+
+            # Keep track of best result (most valid links)
+            if best_result is None or result.valid_links > best_result.valid_links:
+                best_result = result
+                best_generated = generated
+
+            # If we have enough valid links, use this result
+            if not result.needs_regeneration:
+                break
+
+        # Use the best result we got
+        assert best_result is not None and best_generated is not None
+
+        # Create content with only valid links (broken links removed entirely)
         validated_content = SlideContent(
-            title=generated.content.title,
-            text=validated_text,
+            title=best_generated.content.title,
+            text=best_result.filtered_text,
         )
 
         # Store as references slide
         references_key = -4  # Special key for references slides
         session.slides[references_key] = SlideState(
-            content=validated_content, controls=generated.controls
+            content=validated_content, controls=best_generated.controls
         )
         await update_session(session)
 
@@ -426,7 +437,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             session_id=session.session_id,
             layout="references",
             content=validated_content,
-            interactive_controls=generated.controls,
+            interactive_controls=best_generated.controls,
             slide_index=session.current_index,
             total_slides=session.total_slides,
         )
