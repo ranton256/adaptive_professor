@@ -52,7 +52,20 @@ CREATE TABLE IF NOT EXISTS slides (
     UNIQUE(session_id, slide_index)
 );
 
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    slide_index INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    rating TEXT,
+    feedback_text TEXT,
+    original_content TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_slides_session ON slides(session_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_session ON feedback(session_id);
 """
 
 
@@ -89,6 +102,36 @@ async def get_db():
 async def clear_all_data() -> None:
     """Clear all data from the database (for testing)."""
     async with get_db() as db:
+        await db.execute("DELETE FROM feedback")
         await db.execute("DELETE FROM slides")
         await db.execute("DELETE FROM sessions")
+        await db.commit()
+
+
+async def log_feedback(
+    session_id: str,
+    slide_index: int,
+    action: str,
+    rating: str | None = None,
+    feedback_text: str | None = None,
+    original_content: str | None = None,
+) -> None:
+    """Log user feedback for a slide generation.
+
+    Args:
+        session_id: The session ID
+        slide_index: Which slide the feedback is for
+        action: The action being performed (e.g., 'regenerate', 'rate')
+        rating: Optional rating ('good', 'bad', 'neutral')
+        feedback_text: Optional text feedback from user
+        original_content: Optional original content before regeneration
+    """
+    async with get_db() as db:
+        await db.execute(
+            """
+            INSERT INTO feedback (session_id, slide_index, action, rating, feedback_text, original_content)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, slide_index, action, rating, feedback_text, original_content),
+        )
         await db.commit()

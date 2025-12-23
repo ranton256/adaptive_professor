@@ -83,6 +83,12 @@ class LLMProvider(Protocol):
         """Generate an interactive concept map of the topic."""
         ...
 
+    def regenerate_slide(
+        self, context: SlideGenerationContext, feedback: str | None = None
+    ) -> GeneratedSlide:
+        """Regenerate a slide, optionally incorporating user feedback."""
+        ...
+
 
 # Shared prompts for consistency across providers
 def get_outline_prompt(topic: str) -> str:
@@ -486,6 +492,66 @@ Please fix the issue and return ONLY valid JSON. Common issues:
 Return ONLY the corrected JSON object, no explanations."""
 
 
+def get_regenerate_prompt(context: SlideGenerationContext, feedback: str | None) -> str:
+    """Generate a prompt for regenerating a slide with optional feedback."""
+    next_title = (
+        context.outline[context.slide_index + 1]
+        if context.slide_index < len(context.outline) - 1
+        else None
+    )
+
+    feedback_section = ""
+    if feedback:
+        feedback_section = f"""
+USER FEEDBACK: The user has requested regeneration with this feedback:
+"{feedback}"
+
+Please address this feedback in your new version. This might mean:
+- Explaining concepts differently
+- Adding or removing detail
+- Using different examples
+- Changing the tone or level of technical depth
+- Fixing factual issues the user identified
+"""
+
+    # Build navigation guidance
+    nav_guidance = ""
+    if context.slide_index > 0:
+        nav_guidance += '- Include a "Previous" button (action: go_previous)\n'
+    if next_title:
+        nav_guidance += f'- Include "Next: {next_title}" button (action: advance_main_thread)\n'
+    else:
+        nav_guidance += '- Include "Continue Learning" button (action: extend_lecture)\n'
+
+    return f"""You are regenerating a slide for a lecture on "{context.topic}".
+
+Current slide: "{context.slide_title}" (slide {context.slide_index + 1} of {context.total_slides})
+{"Next slide will be: " + next_title if next_title else "This is the final slide."}
+{feedback_section}
+Create a DIFFERENT version of this slide. Maintain the same topic but use a fresh approach -
+different examples, different structure, or different emphasis.
+
+Include contextual interactive controls:
+- ALWAYS include a "Regenerate" button (action: regenerate_slide) for requesting another version
+{nav_guidance}- Include "Clarify This" (action: clarify_slide)
+- Optionally include 1-2 "Deep Dive" buttons for key concepts (action: deep_dive, params: {{"concept": "..."}})
+
+Return a JSON object:
+{{
+  "content": {{
+    "title": "The slide title",
+    "text": "The main content with markdown formatting"
+  }},
+  "controls": [
+    {{"label": "Regenerate", "action": "regenerate_slide"}},
+    {{"label": "Next: [topic]", "action": "advance_main_thread"}},
+    ...
+  ]
+}}
+
+Return ONLY the JSON object."""
+
+
 def parse_slide_response(response_text: str) -> GeneratedSlide:
     """Parse LLM response into GeneratedSlide."""
     cleaned = clean_json_response(response_text)
@@ -589,6 +655,14 @@ class GeminiProvider:
     ) -> GeneratedSlide:
         """Generate an interactive concept map of the topic."""
         prompt = get_concept_map_prompt(topic, outline, current_index)
+        response = self.model.generate_content(prompt)
+        return parse_slide_response(response.text)
+
+    def regenerate_slide(
+        self, context: SlideGenerationContext, feedback: str | None = None
+    ) -> GeneratedSlide:
+        """Regenerate a slide with optional user feedback."""
+        prompt = get_regenerate_prompt(context, feedback)
         response = self.model.generate_content(prompt)
         return parse_slide_response(response.text)
 
@@ -728,6 +802,18 @@ class AnthropicProvider:
     ) -> GeneratedSlide:
         """Generate an interactive concept map of the topic."""
         prompt = get_concept_map_prompt(topic, outline, current_index)
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return parse_slide_response(response.content[0].text)
+
+    def regenerate_slide(
+        self, context: SlideGenerationContext, feedback: str | None = None
+    ) -> GeneratedSlide:
+        """Regenerate a slide with optional user feedback."""
+        prompt = get_regenerate_prompt(context, feedback)
         response = self.client.messages.create(
             model=self.model,
             max_tokens=2048,
@@ -1018,6 +1104,37 @@ mindmap
         )
 
         return GeneratedSlide(content=concept_map_content, controls=controls)
+
+    def regenerate_slide(
+        self, context: SlideGenerationContext, feedback: str | None = None
+    ) -> GeneratedSlide:
+        """Regenerate a mock slide with optional feedback."""
+        controls = [
+            InteractiveControl(label="Regenerate", action="regenerate_slide"),
+            InteractiveControl(label="Clarify This", action="clarify_slide"),
+        ]
+
+        # Add navigation controls based on position
+        if context.slide_index > 0:
+            controls.append(InteractiveControl(label="Previous", action="go_previous"))
+
+        if context.slide_index < context.total_slides - 1:
+            next_title = context.outline[context.slide_index + 1]
+            controls.append(
+                InteractiveControl(label=f"Next: {next_title}", action="advance_main_thread")
+            )
+
+        feedback_note = (
+            f" (Regenerated with feedback: {feedback})" if feedback else " (Regenerated)"
+        )
+
+        regenerated_content = SlideContent(
+            title=f"{context.slide_title}{feedback_note}",
+            text=f"This is a regenerated version of the slide about {context.slide_title}. "
+            "The content has been revised to provide a fresh perspective on the topic.",
+        )
+
+        return GeneratedSlide(content=regenerated_content, controls=controls)
 
 
 def get_llm_provider(use_mock: bool = False) -> LLMProvider:

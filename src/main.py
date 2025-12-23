@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from src.components.slides import InteractiveControl, SlideContent, SlidePayload
 from src.config import settings
-from src.database import init_db
+from src.database import init_db, log_feedback
 from src.llm import SlideGenerationContext, get_llm_provider
 from src.session import SlideState, create_session, get_session, update_session
 from src.url_validator import ValidationResult, validate_and_filter_references
@@ -182,6 +182,60 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             content=generated.content, controls=generated.controls
         )
         await update_session(session)
+        return build_slide_payload(session, session.slides[session.current_index])
+
+    elif request.action == "regenerate_slide":
+        # Regenerate the current slide with optional feedback
+        current_state = session.slides.get(session.current_index)
+        feedback = request.params.get("feedback") if request.params else None
+        rating = request.params.get("rating") if request.params else None
+
+        # Log the feedback and original content
+        original_content = None
+        if current_state:
+            original_content = f"{current_state.content.title}\n{current_state.content.text}"
+
+        await log_feedback(
+            session_id=session.session_id,
+            slide_index=session.current_index,
+            action="regenerate",
+            rating=rating,
+            feedback_text=feedback,
+            original_content=original_content,
+        )
+
+        # Regenerate the slide
+        context = get_generation_context(session)
+        generated = llm.regenerate_slide(context, feedback)
+        session.slides[session.current_index] = SlideState(
+            content=generated.content, controls=generated.controls
+        )
+        await update_session(session)
+        return build_slide_payload(session, session.slides[session.current_index])
+
+    elif request.action == "rate_slide":
+        # Log a rating for the current slide without regenerating
+        rating = request.params.get("rating") if request.params else None
+        feedback = request.params.get("feedback") if request.params else None
+
+        if not rating:
+            raise HTTPException(status_code=400, detail="rate_slide requires 'rating' parameter")
+
+        current_state = session.slides.get(session.current_index)
+        original_content = None
+        if current_state:
+            original_content = f"{current_state.content.title}\n{current_state.content.text}"
+
+        await log_feedback(
+            session_id=session.session_id,
+            slide_index=session.current_index,
+            action="rate",
+            rating=rating,
+            feedback_text=feedback,
+            original_content=original_content,
+        )
+
+        # Return the same slide (no change)
         return build_slide_payload(session, session.slides[session.current_index])
 
     elif request.action == "deep_dive":

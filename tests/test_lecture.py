@@ -467,3 +467,67 @@ def test_slides_have_concept_map_button(client: TestClient) -> None:
     data = response.json()
     labels = [c["label"] for c in data["interactive_controls"]]
     assert any("Concept Map" in label for label in labels)
+
+
+def test_regenerate_slide_returns_new_content(client: TestClient) -> None:
+    """Regenerate action should return regenerated content."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    action_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "regenerate_slide"},
+    )
+
+    assert action_response.status_code == 200
+    data = action_response.json()
+    # Mock provider adds "(Regenerated)" to title
+    assert "Regenerated" in data["content"]["title"]
+
+
+def test_regenerate_slide_with_feedback(client: TestClient) -> None:
+    """Regenerate action should incorporate user feedback."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    action_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={
+            "action": "regenerate_slide",
+            "params": {"feedback": "Make it more technical"},
+        },
+    )
+
+    assert action_response.status_code == 200
+    data = action_response.json()
+    # Mock provider includes feedback in title
+    assert "Make it more technical" in data["content"]["title"]
+
+
+def test_rate_slide_requires_rating(client: TestClient) -> None:
+    """Rate slide action requires a rating parameter."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "rate_slide"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_rate_slide_returns_same_slide(client: TestClient) -> None:
+    """Rate slide action should return the same slide."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+    original_title = start_response.json()["content"]["title"]
+
+    action_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "rate_slide", "params": {"rating": "good"}},
+    )
+
+    assert action_response.status_code == 200
+    data = action_response.json()
+    assert data["content"]["title"] == original_title
