@@ -446,8 +446,8 @@ def test_show_concept_map_returns_concept_map_slide(client: TestClient) -> None:
     assert "Concept Map" in data["content"]["title"]
 
 
-def test_concept_map_contains_mermaid_diagram(client: TestClient) -> None:
-    """Concept map should contain a mermaid mindmap diagram."""
+def test_concept_map_contains_json_structure(client: TestClient) -> None:
+    """Concept map should contain a JSON concept map structure."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
     session_id = start_response.json()["session_id"]
 
@@ -457,8 +457,10 @@ def test_concept_map_contains_mermaid_diagram(client: TestClient) -> None:
     )
 
     data = action_response.json()
-    assert "mermaid" in data["content"]["text"]
-    assert "mindmap" in data["content"]["text"]
+    # Check for JSON concept map format
+    assert "conceptmap" in data["content"]["text"]
+    assert '"root"' in data["content"]["text"]
+    assert '"branches"' in data["content"]["text"]
 
 
 def test_slides_have_concept_map_button(client: TestClient) -> None:

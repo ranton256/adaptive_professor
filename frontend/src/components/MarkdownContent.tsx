@@ -10,6 +10,7 @@ import mermaid from "mermaid";
 import "katex/dist/katex.min.css";
 import "highlight.js/styles/github-dark.css";
 import { CodeExecutor } from "./CodeExecutor";
+import { ConceptMap, parseMermaidMindmap, parseJsonConceptMap } from "./ConceptMap";
 
 /**
  * Recursively extract text content from React children.
@@ -240,7 +241,23 @@ export function MarkdownContent({ content, onConceptClick }: MarkdownContentProp
 
           // Render mermaid diagrams with click support
           if (language === "mermaid") {
+            // Try to parse as mindmap and use custom ConceptMap component
+            if (codeString.includes("mindmap")) {
+              const conceptMapData = parseMermaidMindmap(codeString);
+              if (conceptMapData) {
+                return <ConceptMap data={conceptMapData} onNodeClick={onConceptClick} />;
+              }
+            }
+            // Fall back to Mermaid for non-mindmap diagrams or parsing failures
             return <MermaidDiagram code={codeString} onNodeClick={onConceptClick} />;
+          }
+
+          // Handle JSON concept map data directly
+          if (language === "conceptmap" || language === "concept-map") {
+            const conceptMapData = parseJsonConceptMap(codeString);
+            if (conceptMapData) {
+              return <ConceptMap data={conceptMapData} onNodeClick={onConceptClick} />;
+            }
           }
 
           // Execute JavaScript/TypeScript code that contains chartConfig

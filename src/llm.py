@@ -326,39 +326,47 @@ def get_concept_map_prompt(topic: str, outline: list[str], current_index: int) -
 The lecture has covered these topics so far:
 {covered_str}
 
-Create a Mermaid mindmap diagram showing the key concepts and their relationships.
+Create a structured concept map showing the key concepts and their relationships.
 The map should help students understand how concepts connect.
 
-IMPORTANT RULES for Mermaid mindmap:
-- Use mindmap syntax: mindmap\\n  root((Topic))\\n    Concept1\\n      SubConcept
-- Indentation matters - use 2 spaces per level
-- Root node uses double parentheses: root((Main Topic))
-- Child nodes are plain text, indented under parent
-- Keep node labels SHORT (1-3 words max)
-- NO special characters, quotes, or punctuation in labels
-- NO parentheses in child node labels (only root)
-- Focus on the MAIN concepts, not every detail (max 10-15 nodes)
+IMPORTANT: Generate a JSON concept map structure, NOT Mermaid syntax.
+The concept map has:
+- "root": The central topic (string)
+- "branches": Array of main branches, each with "name" and optional "children"
 
-Example:
-```mermaid
-mindmap
-  root((Rust))
-    Ownership
-      Move Semantics
-      Borrowing
-    Types
-      Structs
-      Enums
-    Concurrency
-      Threads
-      Async
-```
+Example structure:
+{{
+  "root": "Rust Programming",
+  "branches": [
+    {{
+      "name": "Ownership",
+      "children": [
+        {{"name": "Move Semantics"}},
+        {{"name": "Borrowing"}}
+      ]
+    }},
+    {{
+      "name": "Type System",
+      "children": [
+        {{"name": "Structs"}},
+        {{"name": "Enums"}}
+      ]
+    }},
+    {{"name": "Concurrency"}}
+  ]
+}}
+
+Guidelines:
+- Keep node labels SHORT (1-4 words)
+- Focus on MAIN concepts only (4-8 branches)
+- Each branch can have 0-4 children
+- Branch names should be specific to the topic
 
 Return a JSON object:
 {{
   "content": {{
     "title": "Concept Map: {topic}",
-    "text": "A mermaid mindmap showing concept relationships. Include clickable navigation buttons below."
+    "text": "```conceptmap\\n<concept_map_json_here>\\n```"
   }},
   "controls": [
     {{"label": "Return to Lecture", "action": "return_to_main", "params": {{"slide_index": {current_index}}}}},
@@ -367,7 +375,7 @@ Return a JSON object:
   ]
 }}
 
-The text should contain ONLY the mermaid code block with the mindmap diagram.
+The text should contain ONLY a conceptmap code block with valid JSON inside.
 Include 2-3 Deep Dive controls for the most important concepts shown in the map.
 Return ONLY the JSON object."""
 
@@ -1085,22 +1093,30 @@ class MockLLMProvider:
             InteractiveControl(label="View References", action="show_references"),
         ]
 
-        # Build a simple concept map
+        # Build a JSON concept map structure
+        import json as json_module
+
+        concept_map_data = {
+            "root": topic,
+            "branches": [
+                {
+                    "name": "Core Concepts",
+                    "children": [{"name": "Fundamentals"}, {"name": "Principles"}],
+                },
+                {
+                    "name": "Applications",
+                    "children": [{"name": "Practice"}, {"name": "Examples"}],
+                },
+                {
+                    "name": "Advanced",
+                    "children": [{"name": "Deep Topics"}, {"name": "Extensions"}],
+                },
+            ],
+        }
+
         concept_map_content = SlideContent(
             title=f"Concept Map: {topic}",
-            text=f"""```mermaid
-mindmap
-  root(({topic}))
-    Core Concepts
-      Fundamentals
-      Principles
-    Applications
-      Practice
-      Examples
-    Advanced
-      Deep Topics
-      Extensions
-```""",
+            text=f"```conceptmap\n{json_module.dumps(concept_map_data, indent=2)}\n```",
         )
 
         return GeneratedSlide(content=concept_map_content, controls=controls)
