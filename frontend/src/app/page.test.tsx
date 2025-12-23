@@ -22,7 +22,7 @@ const mockSlidePayload = {
   },
   interactive_controls: [
     { label: "Next", action: "advance_main_thread" },
-    { label: "Simplify", action: "simplify_slide" },
+    { label: "Clarify", action: "clarify_slide" },
   ],
   allow_freeform_input: true,
   slide_index: 0,
@@ -39,7 +39,7 @@ const mockSecondSlide = {
   interactive_controls: [
     { label: "Next", action: "advance_main_thread" },
     { label: "Previous", action: "go_previous" },
-    { label: "Simplify", action: "simplify_slide" },
+    { label: "Clarify", action: "clarify_slide" },
   ],
   slide_index: 1,
 };
@@ -136,7 +136,7 @@ describe("Home", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Next")).toBeInTheDocument();
-      expect(screen.getByText("Simplify")).toBeInTheDocument();
+      expect(screen.getByText("Clarify")).toBeInTheDocument();
     });
   });
 

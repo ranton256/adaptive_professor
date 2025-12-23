@@ -53,6 +53,47 @@ export default function Home() {
     handleAction("deep_dive", { concept });
   }
 
+  // Get button style based on action type
+  function getButtonStyle(action: string): string {
+    const baseStyle =
+      "h-9 rounded-lg px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 md:h-10 md:px-4 md:text-base";
+
+    switch (action) {
+      // Navigation - primary blue
+      case "advance_main_thread":
+      case "go_previous":
+      case "extend_lecture":
+        return `${baseStyle} bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700`;
+
+      // Deep dive - purple/indigo
+      case "deep_dive":
+        return `${baseStyle} bg-indigo-100 text-indigo-800 border border-indigo-300 hover:bg-indigo-200 dark:bg-indigo-900/50 dark:text-indigo-200 dark:border-indigo-700 dark:hover:bg-indigo-800/50`;
+
+      // Examples and Quiz - teal/green
+      case "show_example":
+      case "quiz_me":
+      case "quiz_answer":
+        return `${baseStyle} bg-teal-100 text-teal-800 border border-teal-300 hover:bg-teal-200 dark:bg-teal-900/50 dark:text-teal-200 dark:border-teal-700 dark:hover:bg-teal-800/50`;
+
+      // Return/back actions - subtle gray
+      case "return_to_main":
+        return `${baseStyle} bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600`;
+
+      // References and concept map - amber/orange
+      case "show_references":
+      case "show_concept_map":
+        return `${baseStyle} bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-700 dark:hover:bg-amber-800/50`;
+
+      // Clarify (formerly simplify) - light purple
+      case "clarify_slide":
+        return `${baseStyle} bg-purple-100 text-purple-800 border border-purple-300 hover:bg-purple-200 dark:bg-purple-900/50 dark:text-purple-200 dark:border-purple-700 dark:hover:bg-purple-800/50`;
+
+      // Default - neutral
+      default:
+        return `${baseStyle} border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700`;
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 font-sans dark:bg-zinc-900">
       <header className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
@@ -134,7 +175,7 @@ export default function Home() {
                     key={index}
                     onClick={() => handleAction(control.action, control.params)}
                     disabled={actionLoading}
-                    className="h-9 rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 md:h-10 md:px-4 md:text-base"
+                    className={getButtonStyle(control.action)}
                   >
                     {actionLoading ? "..." : control.label}
                   </button>

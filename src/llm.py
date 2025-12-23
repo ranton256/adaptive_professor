@@ -47,10 +47,10 @@ class LLMProvider(Protocol):
         """Generate slide content with contextual interactive controls."""
         ...
 
-    def simplify_slide(
+    def clarify_slide(
         self, content: SlideContent, context: SlideGenerationContext
     ) -> GeneratedSlide:
-        """Simplify the content and regenerate contextual controls."""
+        """Clarify the content with better explanations and contextual controls."""
         ...
 
     def handle_deep_dive(
@@ -128,7 +128,7 @@ Return a JSON object with:
 1. "content": {{"title": "...", "text": "2-4 educational sentences"}}
 2. "controls": An array of interactive options. Each control has:
    - "label": The button text (be specific and contextual!)
-   - "action": One of ["advance_main_thread", "go_previous", "deep_dive", "simplify_slide", "show_example", "quiz_me", "extend_lecture", "show_references", "show_concept_map"]
+   - "action": One of ["advance_main_thread", "go_previous", "deep_dive", "clarify_slide", "show_example", "quiz_me", "extend_lecture", "show_references", "show_concept_map"]
    - "params": Optional object with context (e.g., {{"concept": "specific term from this slide"}})
 
 IMPORTANT for controls:
@@ -136,7 +136,7 @@ IMPORTANT for controls:
 - If this is the last slide, include a "Continue Learning" button (action: extend_lecture)
 - If NOT the first slide, ALWAYS include a "Previous" button (action: go_previous)
 - Identify 1-2 key concepts/terms from YOUR content that could be deep-dived (action: deep_dive, params: {{"concept": "..."}})
-- Always include a "Simplify This" option (action: simplify_slide)
+- Always include a "Clarify This" option (action: clarify_slide) for students who want more explanation
 - Optionally include "Show Example" or "Quiz Me" if appropriate for the content
 - Always include "View References" button (action: show_references) to let students find more resources
 - Always include "Concept Map" button (action: show_concept_map) for visualizing topic structure
@@ -153,33 +153,43 @@ Example response (for slide 2 of 6):
     {{"label": "Deep Dive: Ownership Rules", "action": "deep_dive", "params": {{"concept": "ownership rules"}}}},
     {{"label": "Deep Dive: Data Races", "action": "deep_dive", "params": {{"concept": "data races"}}}},
     {{"label": "Show Code Example", "action": "show_example", "params": {{"type": "borrow_checker_error"}}}},
-    {{"label": "Simplify This", "action": "simplify_slide"}}
+    {{"label": "Clarify This", "action": "clarify_slide"}}
   ]
 }}
 
 Return ONLY the JSON object."""
 
 
-def get_simplify_prompt(content: SlideContent, next_title: str | None) -> str:
-    return f"""Rewrite this educational content for a complete beginner (5th grade reading level).
-Use simpler words, shorter sentences, and add a helpful analogy if possible.
+def get_clarify_prompt(content: SlideContent, next_title: str | None) -> str:
+    return f"""Clarify and expand on this educational content to make it more accessible.
 
 Original title: {content.title}
 Original text: {content.text}
 
 {"Next slide will be: " + next_title if next_title else "This is the final slide."}
 
-Return a JSON object with simplified content AND new contextual controls:
+Your task:
+1. Define any technical terms or jargon that might be unclear
+2. Break down complex concepts into clear, logical steps
+3. Add a relevant analogy from the SAME DOMAIN or a related technical field (not childish comparisons)
+4. Explain WHY this concept matters or how it connects to the bigger picture
+5. Keep the intellectual level appropriate - clarify, don't dumb down
+
+IMPORTANT: Do NOT use childish analogies like "think of it like legos" or "imagine you're sharing toys".
+Use analogies from related technical domains, historical examples, or real-world applications.
+
+Return a JSON object with clarified content AND contextual controls:
 {{
-  "content": {{"title": "...", "text": "simplified explanation with analogy"}},
+  "content": {{"title": "[Original Title] - Clarified", "text": "Clear explanation with defined terms and relevant analogy"}},
   "controls": [
     {{"label": "Next: [topic]", "action": "advance_main_thread"}},
+    {{"label": "Previous", "action": "go_previous"}},
     {{"label": "Deep Dive: [concept]", "action": "deep_dive", "params": {{"concept": "..."}}}},
     {{"label": "Quiz Me", "action": "quiz_me"}}
   ]
 }}
 
-Keep controls relevant to the simplified content. Always include navigation if there's a next slide.
+Keep controls relevant to the clarified content. Include navigation buttons as appropriate.
 Return ONLY the JSON object."""
 
 
@@ -201,7 +211,7 @@ Return a JSON object:
     {{"label": "Return to: {parent_context.slide_title}", "action": "return_to_main", "params": {{"slide_index": {parent_context.slide_index}}}}},
     {{"label": "Deep Dive: [sub-concept]", "action": "deep_dive", "params": {{"concept": "..."}}}},
     {{"label": "Show Example", "action": "show_example"}},
-    {{"label": "Simplify This", "action": "simplify_slide"}}
+    {{"label": "Clarify This", "action": "clarify_slide"}}
   ]
 }}
 
@@ -294,7 +304,7 @@ Return a JSON object:
   "controls": [
     {{"label": "Return to: {content.title}", "action": "return_to_main", "params": {{"slide_index": {context.slide_index}}}}},
     {{"label": "Another Example", "action": "show_example"}},
-    {{"label": "Simplify This", "action": "simplify_slide"}}
+    {{"label": "Clarify This", "action": "clarify_slide"}}
   ]
 }}
 
@@ -502,7 +512,7 @@ class GeminiProvider:
         response = self.model.generate_content(get_slide_prompt(context, next_title))
         return parse_slide_response(response.text)
 
-    def simplify_slide(
+    def clarify_slide(
         self, content: SlideContent, context: SlideGenerationContext
     ) -> GeneratedSlide:
         """Simplify the content and regenerate contextual controls."""
@@ -511,7 +521,7 @@ class GeminiProvider:
             if context.slide_index < len(context.outline) - 1
             else None
         )
-        response = self.model.generate_content(get_simplify_prompt(content, next_title))
+        response = self.model.generate_content(get_clarify_prompt(content, next_title))
         return parse_slide_response(response.text)
 
     def handle_deep_dive(
@@ -611,7 +621,7 @@ class AnthropicProvider:
         )
         return parse_slide_response(response.content[0].text)
 
-    def simplify_slide(
+    def clarify_slide(
         self, content: SlideContent, context: SlideGenerationContext
     ) -> GeneratedSlide:
         """Simplify the content and regenerate contextual controls."""
@@ -623,7 +633,7 @@ class AnthropicProvider:
         response = self.client.messages.create(
             model=self.model,
             max_tokens=2048,
-            messages=[{"role": "user", "content": get_simplify_prompt(content, next_title)}],
+            messages=[{"role": "user", "content": get_clarify_prompt(content, next_title)}],
         )
         return parse_slide_response(response.content[0].text)
 
@@ -766,7 +776,7 @@ class MockLLMProvider:
         )
 
         # Always have simplify
-        controls.append(InteractiveControl(label="Simplify This", action="simplify_slide"))
+        controls.append(InteractiveControl(label="Clarify This", action="clarify_slide"))
 
         # Quiz option for non-intro/conclusion slides
         if context.slide_index not in [0, context.total_slides - 1]:
@@ -784,7 +794,7 @@ class MockLLMProvider:
 
         return GeneratedSlide(content=content, controls=controls)
 
-    def simplify_slide(
+    def clarify_slide(
         self, content: SlideContent, context: SlideGenerationContext
     ) -> GeneratedSlide:
         """Return simplified mock content with updated controls."""
@@ -801,13 +811,13 @@ class MockLLMProvider:
 
         controls.append(InteractiveControl(label="Quiz Me", action="quiz_me"))
 
-        simplified_content = SlideContent(
-            title=f"{content.title} (Simplified)",
-            text=f"Simple version: {content.text[:100]}... "
-            "Think of it like a simple everyday example that makes this concept easy to understand.",
+        clarified_content = SlideContent(
+            title=f"{content.title} - Clarified",
+            text=f"Clarified version: {content.text[:100]}... "
+            "Here's a clearer explanation with defined terms and real-world context.",
         )
 
-        return GeneratedSlide(content=simplified_content, controls=controls)
+        return GeneratedSlide(content=clarified_content, controls=controls)
 
     def handle_deep_dive(
         self, topic: str, concept: str, parent_context: SlideGenerationContext
@@ -824,7 +834,7 @@ class MockLLMProvider:
                 action="deep_dive",
                 params={"concept": f"sub-{concept}"},
             ),
-            InteractiveControl(label="Simplify This", action="simplify_slide"),
+            InteractiveControl(label="Clarify This", action="clarify_slide"),
         ]
 
         content = SlideContent(
@@ -846,7 +856,7 @@ class MockLLMProvider:
                 params={"slide_index": context.slide_index},
             ),
             InteractiveControl(label="Another Example", action="show_example"),
-            InteractiveControl(label="Simplify This", action="simplify_slide"),
+            InteractiveControl(label="Clarify This", action="clarify_slide"),
         ]
 
         example_content = SlideContent(

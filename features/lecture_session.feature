@@ -29,10 +29,10 @@ Feature: Lecture Session
     Then I should see the next slide in the main thread
     And the slide transition should be smooth
 
-  Scenario: Request simplified explanation
+  Scenario: Request clarified explanation
     Given I have started a lecture on "Introduction to Rust Ownership"
     And I am viewing a slide with technical content
-    When I click the "Simplify" button
+    When I click the "Clarify" button
     Then the current slide should be rewritten
-    And the language should be appropriate for a beginner
+    And the explanation should be clearer with defined terms
     And the core concepts should remain the same

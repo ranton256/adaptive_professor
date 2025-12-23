@@ -113,20 +113,20 @@ def test_action_previous_returns_previous_slide(client: TestClient) -> None:
     assert data["slide_index"] == 0
 
 
-def test_action_simplify_returns_simplified_content(client: TestClient) -> None:
-    """Simplifying should return modified content."""
+def test_action_clarify_returns_clarified_content(client: TestClient) -> None:
+    """Clarifying should return modified content."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
     session_id = start_response.json()["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
-        json={"action": "simplify_slide"},
+        json={"action": "clarify_slide"},
     )
 
     assert action_response.status_code == 200
     data = action_response.json()
-    # Mock provider adds "(Simplified)" to title
-    assert "Simplified" in data["content"]["title"]
+    # Mock provider adds "- Clarified" to title
+    assert "Clarified" in data["content"]["title"]
 
 
 def test_action_invalid_session_returns_404(client: TestClient) -> None:

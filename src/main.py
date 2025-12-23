@@ -173,10 +173,10 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         await update_session(session)
         return build_slide_payload(session, session.slides[session.current_index])
 
-    elif request.action == "simplify_slide":
+    elif request.action == "clarify_slide":
         current_state = session.slides[session.current_index]
         context = get_generation_context(session)
-        generated = llm.simplify_slide(current_state.content, context)
+        generated = llm.clarify_slide(current_state.content, context)
         session.slides[session.current_index] = SlideState(
             content=generated.content, controls=generated.controls
         )

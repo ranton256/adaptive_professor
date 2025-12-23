@@ -38,9 +38,9 @@ def test_navigate_to_next_slide() -> None:
     """Test navigating to next slide."""
 
 
-@scenario("../../features/lecture_session.feature", "Request simplified explanation")
-def test_request_simplified_explanation() -> None:
-    """Test requesting simplified explanation."""
+@scenario("../../features/lecture_session.feature", "Request clarified explanation")
+def test_request_clarified_explanation() -> None:
+    """Test requesting clarified explanation."""
 
 
 # Given steps
@@ -117,14 +117,14 @@ def click_next(test_client: TestClient, context: dict) -> None:
         context["slide"] = response.json()
 
 
-@when('I click the "Simplify" button')
-def click_simplify(test_client: TestClient, context: dict) -> None:
-    """Click the Simplify button."""
+@when('I click the "Clarify" button')
+def click_clarify(test_client: TestClient, context: dict) -> None:
+    """Click the Clarify button."""
     session_id = context["session_id"]
     context["original_slide"] = context["slide"]
     response = test_client.post(
         f"/api/lecture/{session_id}/action",
-        json={"action": "simplify_slide"},
+        json={"action": "clarify_slide"},
     )
     context["response"] = response
     if response.status_code == 200:
@@ -176,18 +176,18 @@ def smooth_transition(context: dict) -> None:
 def slide_rewritten(context: dict) -> None:
     """Verify the slide was rewritten."""
     assert context["response"].status_code == 200
-    # The slide content should be different after simplification
+    # The slide content should be different after clarification
     original_title = context["original_slide"]["content"]["title"]
     new_title = context["slide"]["content"]["title"]
-    # Mock provider adds "(Simplified)" to title
-    assert new_title != original_title or "Simplified" in new_title
+    # Mock provider adds "- Clarified" to title
+    assert new_title != original_title or "Clarified" in new_title
 
 
-@then("the language should be appropriate for a beginner")
-def beginner_language(context: dict) -> None:
-    """Verify simplified language."""
-    # Mock provider adds "(Simplified)" indicator
-    assert "Simplified" in context["slide"]["content"]["title"]
+@then("the explanation should be clearer with defined terms")
+def clearer_explanation(context: dict) -> None:
+    """Verify clarified content."""
+    # Mock provider adds "- Clarified" indicator
+    assert "Clarified" in context["slide"]["content"]["title"]
 
 
 @then("the core concepts should remain the same")
