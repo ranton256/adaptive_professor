@@ -121,23 +121,27 @@ Current slide title: "{context.slide_title}"
 
 Generate the slide content AND contextual interactive controls that a student might want.
 
+This is slide {context.slide_index + 1} of {context.total_slides}.
+{"This is the FIRST slide - no Previous button needed." if context.is_first else "This is NOT the first slide - include a Previous button."}
+
 Return a JSON object with:
 1. "content": {{"title": "...", "text": "2-4 educational sentences"}}
 2. "controls": An array of interactive options. Each control has:
    - "label": The button text (be specific and contextual!)
-   - "action": One of ["advance_main_thread", "deep_dive", "simplify_slide", "show_example", "quiz_me", "extend_lecture", "show_references", "show_concept_map"]
+   - "action": One of ["advance_main_thread", "go_previous", "deep_dive", "simplify_slide", "show_example", "quiz_me", "extend_lecture", "show_references", "show_concept_map"]
    - "params": Optional object with context (e.g., {{"concept": "specific term from this slide"}})
 
 IMPORTANT for controls:
 - If there's a next slide, include a "Next: [next topic]" button (action: advance_main_thread)
 - If this is the last slide, include a "Continue Learning" button (action: extend_lecture)
+- If NOT the first slide, ALWAYS include a "Previous" button (action: go_previous)
 - Identify 1-2 key concepts/terms from YOUR content that could be deep-dived (action: deep_dive, params: {{"concept": "..."}})
 - Always include a "Simplify This" option (action: simplify_slide)
 - Optionally include "Show Example" or "Quiz Me" if appropriate for the content
 - Always include "View References" button (action: show_references) to let students find more resources
 - Always include "Concept Map" button (action: show_concept_map) for visualizing topic structure
 
-Example response:
+Example response (for slide 2 of 6):
 {{
   "content": {{
     "title": "The Borrow Checker",
@@ -145,6 +149,7 @@ Example response:
   }},
   "controls": [
     {{"label": "Next: Lifetimes", "action": "advance_main_thread"}},
+    {{"label": "Previous", "action": "go_previous"}},
     {{"label": "Deep Dive: Ownership Rules", "action": "deep_dive", "params": {{"concept": "ownership rules"}}}},
     {{"label": "Deep Dive: Data Races", "action": "deep_dive", "params": {{"concept": "data races"}}}},
     {{"label": "Show Code Example", "action": "show_example", "params": {{"type": "borrow_checker_error"}}}},
