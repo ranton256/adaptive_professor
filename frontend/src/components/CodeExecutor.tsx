@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -17,7 +17,7 @@ import {
 } from "chart.js";
 import { Chart } from "react-chartjs-2";
 
-// Register Chart.js components
+// Register Chart.js components (zoom plugin registered dynamically on client)
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -31,6 +31,9 @@ ChartJS.register(
   Legend,
   Filler
 );
+
+// Flag to track if zoom plugin is registered
+let zoomPluginRegistered = false;
 
 interface ChartConfig {
   type: "line" | "bar" | "pie" | "doughnut" | "scatter" | "bubble";
@@ -97,6 +100,21 @@ function executeCode(code: string): ExecutionResult {
 
 export function CodeExecutor({ code, language }: CodeExecutorProps) {
   const [showCode, setShowCode] = useState(false);
+  const [zoomReady, setZoomReady] = useState(false);
+  const chartRef = useRef<ChartJS>(null);
+
+  // Register zoom plugin dynamically on client side
+  useEffect(() => {
+    if (!zoomPluginRegistered && typeof window !== "undefined") {
+      import("chartjs-plugin-zoom").then((zoomPlugin) => {
+        ChartJS.register(zoomPlugin.default);
+        zoomPluginRegistered = true;
+        setZoomReady(true);
+      });
+    } else if (zoomPluginRegistered) {
+      setZoomReady(true);
+    }
+  }, []);
 
   // Execute code synchronously via useMemo (no effect needed)
   const result = useMemo(() => executeCode(code), [code]);
@@ -105,12 +123,45 @@ export function CodeExecutor({ code, language }: CodeExecutorProps) {
   const chartData = result.chartConfig?.data ?? null;
   const chartOptions = useMemo(() => {
     if (!result.chartConfig) return {};
-    return {
+    const baseOptions = {
       responsive: true,
       maintainAspectRatio: true,
       ...result.chartConfig.options,
     };
-  }, [result]);
+
+    // Only add zoom plugin config if zoom is ready
+    if (zoomReady) {
+      return {
+        ...baseOptions,
+        plugins: {
+          ...(result.chartConfig.options?.plugins as Record<string, unknown>),
+          zoom: {
+            pan: {
+              enabled: true,
+              mode: "xy" as const,
+            },
+            zoom: {
+              wheel: {
+                enabled: true,
+              },
+              pinch: {
+                enabled: true,
+              },
+              mode: "xy" as const,
+            },
+          },
+        },
+      };
+    }
+
+    return baseOptions;
+  }, [result, zoomReady]);
+
+  const handleResetZoom = () => {
+    if (chartRef.current) {
+      chartRef.current.resetZoom();
+    }
+  };
 
   // Error state
   if (result.error) {
@@ -137,7 +188,23 @@ export function CodeExecutor({ code, language }: CodeExecutorProps) {
     return (
       <div className="my-4 space-y-2">
         <div className="rounded-lg bg-white p-4 dark:bg-zinc-800">
-          <Chart type={result.chartConfig.type} data={chartData} options={chartOptions} />
+          <Chart
+            ref={chartRef}
+            type={result.chartConfig.type}
+            data={chartData}
+            options={chartOptions}
+          />
+          {zoomReady && (
+            <div className="mt-2 flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+              <span>Scroll to zoom, drag to pan</span>
+              <button
+                onClick={handleResetZoom}
+                className="rounded bg-zinc-200 px-2 py-1 hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600"
+              >
+                Reset Zoom
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Console logs if any */}

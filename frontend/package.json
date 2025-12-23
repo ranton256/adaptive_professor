@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "chart.js": "^4.5.1",
+    "chartjs-plugin-zoom": "^2.2.0",
     "katex": "^0.16.27",
     "mermaid": "^11.12.2",
     "next": "16.1.1",

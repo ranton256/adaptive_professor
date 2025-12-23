@@ -81,7 +81,7 @@ export default function Home() {
             {error && <p className="text-center text-red-500">{error}</p>}
           </div>
         ) : (
-          <div className="flex h-full w-full max-w-3xl flex-col">
+          <div className="flex h-full w-full max-w-6xl flex-col px-4">
             {/* Progress indicator - fixed height */}
             <div className="flex-shrink-0 pb-4">
               <div className="flex items-center justify-between text-sm text-zinc-500 dark:text-zinc-400">
@@ -107,11 +107,11 @@ export default function Home() {
 
             {/* Slide content - scrollable, takes remaining space */}
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="rounded-xl bg-white p-8 shadow-lg dark:bg-zinc-800">
-                <h2 className="mb-4 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+              <div className="rounded-xl bg-white p-6 shadow-lg dark:bg-zinc-800 md:p-8">
+                <h2 className="mb-4 text-xl font-bold text-zinc-900 dark:text-zinc-100 md:text-2xl">
                   {slide.content.title}
                 </h2>
-                <div className="text-lg leading-relaxed text-zinc-700 dark:text-zinc-300">
+                <div className="text-base leading-relaxed text-zinc-700 dark:text-zinc-300 md:text-lg">
                   <MarkdownContent content={slide.content.text} />
                 </div>
               </div>
@@ -120,13 +120,13 @@ export default function Home() {
             {/* Interactive controls - fixed height at bottom */}
             <div className="flex-shrink-0 pt-4">
               {error && <p className="mb-3 text-center text-red-500">{error}</p>}
-              <div className="flex min-h-[100px] flex-wrap content-start gap-3">
+              <div className="flex min-h-[80px] flex-wrap content-start gap-2 md:gap-3">
                 {slide.interactive_controls.map((control, index) => (
                   <button
                     key={index}
                     onClick={() => handleAction(control.action, control.params)}
                     disabled={actionLoading}
-                    className="h-10 rounded-lg border border-zinc-300 bg-white px-4 font-medium text-zinc-900 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+                    className="h-9 rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 md:h-10 md:px-4 md:text-base"
                   >
                     {actionLoading ? "..." : control.label}
                   </button>

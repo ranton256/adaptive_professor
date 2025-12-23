@@ -46,6 +46,7 @@ function MermaidDiagram({ code }: MermaidDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     const renderDiagram = async () => {
@@ -64,6 +65,10 @@ function MermaidDiagram({ code }: MermaidDiagramProps) {
 
     renderDiagram();
   }, [code]);
+
+  const handleZoomIn = () => setZoom((z) => Math.min(z + 0.25, 3));
+  const handleZoomOut = () => setZoom((z) => Math.max(z - 0.25, 0.25));
+  const handleResetZoom = () => setZoom(1);
 
   if (error) {
     return (
@@ -84,11 +89,43 @@ function MermaidDiagram({ code }: MermaidDiagramProps) {
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="my-4 flex justify-center overflow-x-auto rounded-lg bg-zinc-100 p-4 dark:bg-zinc-800"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    <div className="my-4 rounded-lg bg-zinc-100 dark:bg-zinc-800">
+      {/* Zoom controls */}
+      <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-700">
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+          Zoom: {Math.round(zoom * 100)}%
+        </span>
+        <div className="flex gap-1">
+          <button
+            onClick={handleZoomOut}
+            className="rounded bg-zinc-200 px-2 py-1 text-xs hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600"
+          >
+            −
+          </button>
+          <button
+            onClick={handleResetZoom}
+            className="rounded bg-zinc-200 px-2 py-1 text-xs hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600"
+          >
+            Reset
+          </button>
+          <button
+            onClick={handleZoomIn}
+            className="rounded bg-zinc-200 px-2 py-1 text-xs hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600"
+          >
+            +
+          </button>
+        </div>
+      </div>
+      {/* Scrollable diagram container */}
+      <div className="overflow-auto p-4" style={{ maxHeight: "70vh" }}>
+        <div
+          ref={containerRef}
+          className="flex min-w-max justify-center transition-transform duration-200"
+          style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
+    </div>
   );
 }
 
