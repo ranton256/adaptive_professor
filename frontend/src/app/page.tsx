@@ -88,6 +88,10 @@ export default function Home() {
       case "clarify_slide":
         return `${baseStyle} bg-purple-100 text-purple-800 border border-purple-300 hover:bg-purple-200 dark:bg-purple-900/50 dark:text-purple-200 dark:border-purple-700 dark:hover:bg-purple-800/50`;
 
+      // Regenerate - rose/pink with refresh connotation
+      case "regenerate_slide":
+        return `${baseStyle} bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 dark:bg-rose-900/50 dark:text-rose-200 dark:border-rose-700 dark:hover:bg-rose-800/50`;
+
       // Default - neutral
       default:
         return `${baseStyle} border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700`;
