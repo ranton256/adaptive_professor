@@ -39,6 +39,10 @@ class LLMProvider(Protocol):
         """Generate a list of slide titles for the topic."""
         ...
 
+    def extend_lecture_outline(self, topic: str, existing_titles: list[str]) -> list[str]:
+        """Generate additional slide titles to continue the lecture."""
+        ...
+
     def generate_slide(self, context: SlideGenerationContext) -> GeneratedSlide:
         """Generate slide content with contextual interactive controls."""
         ...
@@ -72,18 +76,36 @@ class LLMProvider(Protocol):
 def get_outline_prompt(topic: str) -> str:
     return f"""Create a lecture outline for the topic: "{topic}"
 
-Generate exactly 6 slide titles that would form a coherent educational presentation.
-The first slide should be an introduction and the last should be a summary/conclusion.
+Generate exactly 5 slide titles that would form the beginning of a coherent educational presentation.
+The first slide should be an introduction. Do NOT include a conclusion slide - the lecture can continue.
 
 Return ONLY a JSON array of strings, no other text. Example:
-["Introduction to Topic", "Core Concept 1", "Core Concept 2", "Advanced Topic", "Practical Applications", "Summary and Next Steps"]"""
+["Introduction to Topic", "Core Concept 1", "Core Concept 2", "Advanced Topic", "Practical Applications"]"""
+
+
+def get_extend_outline_prompt(topic: str, existing_titles: list[str]) -> str:
+    titles_str = "\n".join(f"- {t}" for t in existing_titles)
+    return f"""Continue the lecture outline for the topic: "{topic}"
+
+The lecture has already covered these slides:
+{titles_str}
+
+Generate 4 MORE slide titles that would naturally continue this lecture, going deeper into the topic.
+These should cover new aspects, advanced concepts, or related topics not yet discussed.
+Do NOT include a conclusion slide - the lecture can always continue.
+
+Return ONLY a JSON array of strings (the new slides only), no other text. Example:
+["Advanced Concept 1", "Real-World Application", "Common Pitfalls", "Best Practices"]"""
 
 
 def get_slide_prompt(context: SlideGenerationContext, next_title: str | None) -> str:
+    last_slide_note = """This is currently the last prepared slide.
+Include a "Continue Learning" button (action: extend_lecture) to let students explore more about this topic."""
+
     return f"""You are an adaptive professor creating slide {context.slide_index + 1} of {context.total_slides} for a lecture on "{context.topic}".
 
 Current slide title: "{context.slide_title}"
-{"Next slide will be: " + next_title if next_title else "This is the final slide."}
+{"Next slide will be: " + next_title if next_title else last_slide_note}
 
 Generate the slide content AND contextual interactive controls that a student might want.
 
@@ -91,11 +113,12 @@ Return a JSON object with:
 1. "content": {{"title": "...", "text": "2-4 educational sentences"}}
 2. "controls": An array of interactive options. Each control has:
    - "label": The button text (be specific and contextual!)
-   - "action": One of ["advance_main_thread", "deep_dive", "simplify_slide", "show_example", "quiz_me"]
+   - "action": One of ["advance_main_thread", "deep_dive", "simplify_slide", "show_example", "quiz_me", "extend_lecture"]
    - "params": Optional object with context (e.g., {{"concept": "specific term from this slide"}})
 
 IMPORTANT for controls:
 - If there's a next slide, include a "Next: [next topic]" button (action: advance_main_thread)
+- If this is the last slide, include a "Continue Learning" button (action: extend_lecture)
 - Identify 1-2 key concepts/terms from YOUR content that could be deep-dived (action: deep_dive, params: {{"concept": "..."}})
 - Always include a "Simplify This" option (action: simplify_slide)
 - Optionally include "Show Example" or "Quiz Me" if appropriate for the content
@@ -353,8 +376,14 @@ class GeminiProvider:
         self.model = genai.GenerativeModel("gemini-2.0-flash")
 
     def generate_lecture_outline(self, topic: str) -> list[str]:
-        """Generate a list of 5-7 slide titles for the topic."""
+        """Generate a list of slide titles for the topic."""
         response = self.model.generate_content(get_outline_prompt(topic))
+        cleaned = clean_json_response(response.text)
+        return json.loads(cleaned)
+
+    def extend_lecture_outline(self, topic: str, existing_titles: list[str]) -> list[str]:
+        """Generate additional slide titles to continue the lecture."""
+        response = self.model.generate_content(get_extend_outline_prompt(topic, existing_titles))
         cleaned = clean_json_response(response.text)
         return json.loads(cleaned)
 
@@ -426,11 +455,23 @@ class AnthropicProvider:
         self.model = "claude-sonnet-4-20250514"
 
     def generate_lecture_outline(self, topic: str) -> list[str]:
-        """Generate a list of 5-7 slide titles for the topic."""
+        """Generate a list of slide titles for the topic."""
         response = self.client.messages.create(
             model=self.model,
             max_tokens=1024,
             messages=[{"role": "user", "content": get_outline_prompt(topic)}],
+        )
+        cleaned = clean_json_response(response.content[0].text)
+        return json.loads(cleaned)
+
+    def extend_lecture_outline(self, topic: str, existing_titles: list[str]) -> list[str]:
+        """Generate additional slide titles to continue the lecture."""
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            messages=[
+                {"role": "user", "content": get_extend_outline_prompt(topic, existing_titles)}
+            ],
         )
         cleaned = clean_json_response(response.content[0].text)
         return json.loads(cleaned)
@@ -536,7 +577,16 @@ class MockLLMProvider:
             "Key Principles",
             "Practical Applications",
             "Common Challenges",
-            "Summary and Next Steps",
+        ]
+
+    def extend_lecture_outline(self, topic: str, existing_titles: list[str]) -> list[str]:
+        """Return additional mock slide titles."""
+        extension_num = len(existing_titles) // 5 + 1
+        return [
+            f"Advanced Topic {extension_num}.1",
+            f"Advanced Topic {extension_num}.2",
+            f"Real-World Examples {extension_num}",
+            f"Expert Insights {extension_num}",
         ]
 
     def generate_slide(self, context: SlideGenerationContext) -> GeneratedSlide:
@@ -547,12 +597,15 @@ class MockLLMProvider:
 
         controls = []
 
-        # Contextual next button
+        # Contextual next button or continue learning
         if not context.is_last:
             next_title = context.outline[context.slide_index + 1]
             controls.append(
                 InteractiveControl(label=f"Next: {next_title}", action="advance_main_thread")
             )
+        else:
+            # On last slide, offer to continue learning
+            controls.append(InteractiveControl(label="Continue Learning", action="extend_lecture"))
 
         # Previous button (not on first slide)
         if not context.is_first:

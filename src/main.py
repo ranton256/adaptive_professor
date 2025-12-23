@@ -371,5 +371,25 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             total_slides=session.total_slides,
         )
 
+    elif request.action == "extend_lecture":
+        # Generate more slides to continue learning
+        new_titles = llm.extend_lecture_outline(session.topic, session.outline)
+
+        # Append new titles to the outline
+        session.outline.extend(new_titles)
+
+        # Move to the next slide (first of the new ones)
+        session.current_index += 1
+
+        # Generate the new slide
+        context = get_generation_context(session)
+        generated = llm.generate_slide(context)
+        session.slides[session.current_index] = SlideState(
+            content=generated.content, controls=generated.controls
+        )
+
+        await update_session(session)
+        return build_slide_payload(session, session.slides[session.current_index])
+
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")

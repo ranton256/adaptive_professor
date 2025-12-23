@@ -358,3 +358,49 @@ def test_multiple_examples_then_return(client: TestClient) -> None:
     assert return_response.status_code == 200
     assert return_response.json()["layout"] == "default"
     assert return_response.json()["session_id"] == session_id
+
+
+def test_extend_lecture_adds_more_slides(client: TestClient) -> None:
+    """Extend lecture action should add more slides and advance."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+    initial_total = start_response.json()["total_slides"]
+
+    # Advance to the last slide
+    for _ in range(initial_total - 1):
+        client.post(
+            f"/api/lecture/{session_id}/action",
+            json={"action": "advance_main_thread"},
+        )
+
+    # Extend the lecture
+    extend_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "extend_lecture"},
+    )
+
+    assert extend_response.status_code == 200
+    data = extend_response.json()
+    # Should have more slides now
+    assert data["total_slides"] > initial_total
+    # Should be on a new slide (one past the old last slide)
+    assert data["slide_index"] == initial_total
+
+
+def test_last_slide_has_continue_learning_button(client: TestClient) -> None:
+    """Last slide should have a Continue Learning button."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+    total_slides = start_response.json()["total_slides"]
+
+    # Advance to the last slide
+    for _ in range(total_slides - 1):
+        response = client.post(
+            f"/api/lecture/{session_id}/action",
+            json={"action": "advance_main_thread"},
+        )
+
+    data = response.json()
+    labels = [c["label"] for c in data["interactive_controls"]]
+    # Should have "Continue Learning" button
+    assert any("Continue Learning" in label for label in labels)
