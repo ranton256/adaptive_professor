@@ -217,58 +217,50 @@ Create a practical example that illustrates the concepts from this slide.
 
 IMPORTANT - Choose the RIGHT format for the domain:
 
-1. For DATA VISUALIZATION and SIMULATIONS:
+1. For LANGUAGE, GRAMMAR, VOCABULARY, and LINGUISTIC topics:
+   - Use PLAIN TEXT with markdown tables - NO CODE
+   - Use markdown tables for declensions, conjugations, and vocabulary lists
+   - Example for Greek noun declension:
+   | Case | Singular | Plural |
+   |------|----------|--------|
+   | Nominative | πατήρ | πατέρες |
+   | Genitive | πατρός | πατέρων |
+   | Dative | πατρί | πατράσι |
+   - Include pronunciation guides in parentheses
+   - Add explanatory notes about patterns or irregularities
+   - NEVER generate JavaScript code for language examples
+
+2. For DATA VISUALIZATION and SIMULATIONS:
    - Use JavaScript with Chart.js format for interactive charts
    - Generate data programmatically when showing trends, simulations, or comparisons
    - Your code MUST set a `chartConfig` variable with the Chart.js configuration
    - Supported chart types: 'line', 'bar', 'pie', 'doughnut', 'scatter'
    - Example:
    ```javascript
-   // Simulate exponential decay
-   const times = [];
-   const values = [];
-   let value = 100;
-   for (let t = 0; t < 50; t++) {{
-     times.push(t);
-     values.push(value);
-     value *= 0.95;
-   }}
-
    chartConfig = {{
      type: 'line',
      data: {{
-       labels: times,
-       datasets: [{{
-         label: 'Decay over time',
-         data: values,
-         borderColor: 'rgb(75, 192, 192)',
-         tension: 0.1
-       }}]
-     }},
-     options: {{
-       scales: {{
-         y: {{ title: {{ display: true, text: 'Value' }} }},
-         x: {{ title: {{ display: true, text: 'Time (s)' }} }}
-       }}
+       labels: [1, 2, 3, 4, 5],
+       datasets: [{{ label: 'Values', data: [10, 20, 15, 25, 30] }}]
      }}
    }};
    ```
 
-2. For SCIENCE topics with EQUATIONS:
+3. For SCIENCE topics with EQUATIONS:
    - Use LaTeX for equations: $E = mc^2$ or $$\\frac{{dN}}{{dt}} = -\\lambda N$$
    - Use step-by-step numbered explanations with LaTeX formulas
    - For reactions: $^1H + ^1H \\rightarrow ^2H + e^+ + \\nu_e$
 
-3. For PROGRAMMING topics:
+4. For PROGRAMMING topics:
    - Use JavaScript/TypeScript code that could run in a browser
    - Use working code examples with comments
 
-4. For PROCESSES or WORKFLOWS:
+5. For PROCESSES or WORKFLOWS:
    - Use Mermaid flowcharts with SIMPLE labels (no special chars, no parentheses in labels)
    - Node labels must be quoted if they contain spaces: A["Step One"]
    - Example: ```mermaid\\nflowchart LR\\n  A["Step 1"] --> B["Step 2"]\\n```
 
-5. For HIERARCHIES or STRUCTURES:
+6. For HIERARCHIES or STRUCTURES:
    - Use Mermaid with simple alphanumeric labels only
    - Always quote labels: A["Label Here"]
 

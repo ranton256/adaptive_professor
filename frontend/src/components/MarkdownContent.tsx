@@ -40,9 +40,10 @@ mermaid.initialize({
 
 interface MermaidDiagramProps {
   code: string;
+  onNodeClick?: (concept: string) => void;
 }
 
-function MermaidDiagram({ code }: MermaidDiagramProps) {
+function MermaidDiagram({ code, onNodeClick }: MermaidDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +66,47 @@ function MermaidDiagram({ code }: MermaidDiagramProps) {
 
     renderDiagram();
   }, [code]);
+
+  // Attach click handlers to mindmap nodes after SVG is rendered
+  useEffect(() => {
+    if (!containerRef.current || !svg || !onNodeClick) return;
+
+    const container = containerRef.current;
+    // Find all text elements and their parent groups in the mindmap
+    const nodes = container.querySelectorAll(".mindmap-node, .node, g[class*='node']");
+
+    nodes.forEach((node) => {
+      const textElement = node.querySelector("text, .nodeLabel");
+      if (textElement) {
+        const concept = textElement.textContent?.trim();
+        if (concept) {
+          // Style as clickable
+          (node as HTMLElement).style.cursor = "pointer";
+
+          // Add hover effect
+          node.addEventListener("mouseenter", () => {
+            (node as HTMLElement).style.opacity = "0.7";
+          });
+          node.addEventListener("mouseleave", () => {
+            (node as HTMLElement).style.opacity = "1";
+          });
+
+          // Add click handler
+          node.addEventListener("click", (e) => {
+            e.stopPropagation();
+            onNodeClick(concept);
+          });
+        }
+      }
+    });
+
+    // Cleanup
+    return () => {
+      nodes.forEach((node) => {
+        node.replaceWith(node.cloneNode(true));
+      });
+    };
+  }, [svg, onNodeClick]);
 
   const handleZoomIn = () => setZoom((z) => Math.min(z + 0.25, 3));
   const handleZoomOut = () => setZoom((z) => Math.max(z - 0.25, 0.25));
@@ -125,15 +167,22 @@ function MermaidDiagram({ code }: MermaidDiagramProps) {
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       </div>
+      {/* Hint for clickable nodes */}
+      {onNodeClick && (
+        <div className="border-t border-zinc-200 px-3 py-2 text-center text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+          Click any concept to explore it in depth
+        </div>
+      )}
     </div>
   );
 }
 
 interface MarkdownContentProps {
   content: string;
+  onConceptClick?: (concept: string) => void;
 }
 
-export function MarkdownContent({ content }: MarkdownContentProps) {
+export function MarkdownContent({ content, onConceptClick }: MarkdownContentProps) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
@@ -154,9 +203,9 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
           // Extract raw text from children (handles syntax-highlighted spans)
           const codeString = extractTextFromChildren(children).replace(/\n$/, "");
 
-          // Render mermaid diagrams
+          // Render mermaid diagrams with click support
           if (language === "mermaid") {
-            return <MermaidDiagram code={codeString} />;
+            return <MermaidDiagram code={codeString} onNodeClick={onConceptClick} />;
           }
 
           // Execute JavaScript/TypeScript code that contains chartConfig

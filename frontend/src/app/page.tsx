@@ -48,6 +48,11 @@ export default function Home() {
     setError(null);
   }
 
+  function handleConceptClick(concept: string) {
+    // Trigger a deep dive when clicking on a concept in the mindmap
+    handleAction("deep_dive", { concept });
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 font-sans dark:bg-zinc-900">
       <header className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
@@ -112,7 +117,10 @@ export default function Home() {
                   {slide.content.title}
                 </h2>
                 <div className="text-base leading-relaxed text-zinc-700 dark:text-zinc-300 md:text-lg">
-                  <MarkdownContent content={slide.content.text} />
+                  <MarkdownContent
+                    content={slide.content.text}
+                    onConceptClick={handleConceptClick}
+                  />
                 </div>
               </div>
             </div>
