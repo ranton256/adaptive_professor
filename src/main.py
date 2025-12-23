@@ -412,5 +412,26 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             total_slides=session.total_slides,
         )
 
+    elif request.action == "show_concept_map":
+        # Generate an interactive concept map of the topic
+        generated = llm.generate_concept_map(session.topic, session.outline, session.current_index)
+
+        # Store as concept map slide
+        concept_map_key = -5  # Special key for concept map slides
+        session.slides[concept_map_key] = SlideState(
+            content=generated.content, controls=generated.controls
+        )
+        await update_session(session)
+
+        return SlidePayload(
+            slide_id=f"concept_map_{session.current_index}",
+            session_id=session.session_id,
+            layout="concept_map",
+            content=generated.content,
+            interactive_controls=generated.controls,
+            slide_index=session.current_index,
+            total_slides=session.total_slides,
+        )
+
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")

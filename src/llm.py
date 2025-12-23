@@ -77,6 +77,12 @@ class LLMProvider(Protocol):
         """Generate a references slide with curated learning resources."""
         ...
 
+    def generate_concept_map(
+        self, topic: str, outline: list[str], current_index: int
+    ) -> GeneratedSlide:
+        """Generate an interactive concept map of the topic."""
+        ...
+
 
 # Shared prompts for consistency across providers
 def get_outline_prompt(topic: str) -> str:
@@ -119,7 +125,7 @@ Return a JSON object with:
 1. "content": {{"title": "...", "text": "2-4 educational sentences"}}
 2. "controls": An array of interactive options. Each control has:
    - "label": The button text (be specific and contextual!)
-   - "action": One of ["advance_main_thread", "deep_dive", "simplify_slide", "show_example", "quiz_me", "extend_lecture", "show_references"]
+   - "action": One of ["advance_main_thread", "deep_dive", "simplify_slide", "show_example", "quiz_me", "extend_lecture", "show_references", "show_concept_map"]
    - "params": Optional object with context (e.g., {{"concept": "specific term from this slide"}})
 
 IMPORTANT for controls:
@@ -129,6 +135,7 @@ IMPORTANT for controls:
 - Always include a "Simplify This" option (action: simplify_slide)
 - Optionally include "Show Example" or "Quiz Me" if appropriate for the content
 - Always include "View References" button (action: show_references) to let students find more resources
+- Always include "Concept Map" button (action: show_concept_map) for visualizing topic structure
 
 Example response:
 {{
@@ -295,6 +302,60 @@ Return a JSON object:
 }}
 
 The first control MUST be "Return to: {content.title}" to let them go back.
+Return ONLY the JSON object."""
+
+
+def get_concept_map_prompt(topic: str, outline: list[str], current_index: int) -> str:
+    covered_slides = outline[: current_index + 1]
+    covered_str = "\n".join(f"- {t}" for t in covered_slides)
+    return f"""You are creating an interactive concept map for a lecture on "{topic}".
+
+The lecture has covered these topics so far:
+{covered_str}
+
+Create a Mermaid mindmap diagram showing the key concepts and their relationships.
+The map should help students understand how concepts connect.
+
+IMPORTANT RULES for Mermaid mindmap:
+- Use mindmap syntax: mindmap\\n  root((Topic))\\n    Concept1\\n      SubConcept
+- Indentation matters - use 2 spaces per level
+- Root node uses double parentheses: root((Main Topic))
+- Child nodes are plain text, indented under parent
+- Keep node labels SHORT (1-3 words max)
+- NO special characters, quotes, or punctuation in labels
+- NO parentheses in child node labels (only root)
+- Focus on the MAIN concepts, not every detail (max 10-15 nodes)
+
+Example:
+```mermaid
+mindmap
+  root((Rust))
+    Ownership
+      Move Semantics
+      Borrowing
+    Types
+      Structs
+      Enums
+    Concurrency
+      Threads
+      Async
+```
+
+Return a JSON object:
+{{
+  "content": {{
+    "title": "Concept Map: {topic}",
+    "text": "A mermaid mindmap showing concept relationships. Include clickable navigation buttons below."
+  }},
+  "controls": [
+    {{"label": "Return to Lecture", "action": "return_to_main", "params": {{"slide_index": {current_index}}}}},
+    {{"label": "Deep Dive: [concept]", "action": "deep_dive", "params": {{"concept": "..."}}}},
+    {{"label": "View References", "action": "show_references"}}
+  ]
+}}
+
+The text should contain ONLY the mermaid code block with the mindmap diagram.
+Include 2-3 Deep Dive controls for the most important concepts shown in the map.
 Return ONLY the JSON object."""
 
 
@@ -501,6 +562,14 @@ class GeminiProvider:
         response = self.model.generate_content(prompt)
         return parse_slide_response(response.text)
 
+    def generate_concept_map(
+        self, topic: str, outline: list[str], current_index: int
+    ) -> GeneratedSlide:
+        """Generate an interactive concept map of the topic."""
+        prompt = get_concept_map_prompt(topic, outline, current_index)
+        response = self.model.generate_content(prompt)
+        return parse_slide_response(response.text)
+
 
 class AnthropicProvider:
     """Anthropic Claude-based LLM provider."""
@@ -632,6 +701,18 @@ class AnthropicProvider:
         )
         return parse_slide_response(response.content[0].text)
 
+    def generate_concept_map(
+        self, topic: str, outline: list[str], current_index: int
+    ) -> GeneratedSlide:
+        """Generate an interactive concept map of the topic."""
+        prompt = get_concept_map_prompt(topic, outline, current_index)
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return parse_slide_response(response.content[0].text)
+
 
 class MockLLMProvider:
     """Mock LLM provider for testing."""
@@ -694,8 +775,9 @@ class MockLLMProvider:
         if context.slide_index not in [0, context.total_slides - 1]:
             controls.append(InteractiveControl(label="Quiz Me", action="quiz_me"))
 
-        # Always offer references
+        # Always offer references and concept map
         controls.append(InteractiveControl(label="View References", action="show_references"))
+        controls.append(InteractiveControl(label="Concept Map", action="show_concept_map"))
 
         content = SlideContent(
             title=context.slide_title,
@@ -863,6 +945,47 @@ class MockLLMProvider:
         )
 
         return GeneratedSlide(content=references_content, controls=controls)
+
+    def generate_concept_map(
+        self, topic: str, outline: list[str], current_index: int
+    ) -> GeneratedSlide:
+        """Generate a mock concept map slide."""
+        # Extract key concepts from outline
+        concepts = [title.split()[-1] for title in outline[: current_index + 1]]
+
+        controls = [
+            InteractiveControl(
+                label="Return to Lecture",
+                action="return_to_main",
+                params={"slide_index": current_index},
+            ),
+            InteractiveControl(
+                label=f"Deep Dive: {concepts[0] if concepts else 'Concepts'}",
+                action="deep_dive",
+                params={"concept": concepts[0].lower() if concepts else "concepts"},
+            ),
+            InteractiveControl(label="View References", action="show_references"),
+        ]
+
+        # Build a simple concept map
+        concept_map_content = SlideContent(
+            title=f"Concept Map: {topic}",
+            text=f"""```mermaid
+mindmap
+  root(({topic}))
+    Core Concepts
+      Fundamentals
+      Principles
+    Applications
+      Practice
+      Examples
+    Advanced
+      Deep Topics
+      Extensions
+```""",
+        )
+
+        return GeneratedSlide(content=concept_map_content, controls=controls)
 
 
 def get_llm_provider(use_mock: bool = False) -> LLMProvider:

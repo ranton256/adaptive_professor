@@ -428,3 +428,42 @@ def test_slides_have_view_references_button(client: TestClient) -> None:
     data = response.json()
     labels = [c["label"] for c in data["interactive_controls"]]
     assert any("References" in label for label in labels)
+
+
+def test_show_concept_map_returns_concept_map_slide(client: TestClient) -> None:
+    """Show concept map action should return a concept map slide."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    action_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "show_concept_map"},
+    )
+
+    assert action_response.status_code == 200
+    data = action_response.json()
+    assert data["layout"] == "concept_map"
+    assert "Concept Map" in data["content"]["title"]
+
+
+def test_concept_map_contains_mermaid_diagram(client: TestClient) -> None:
+    """Concept map should contain a mermaid mindmap diagram."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    action_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "show_concept_map"},
+    )
+
+    data = action_response.json()
+    assert "mermaid" in data["content"]["text"]
+    assert "mindmap" in data["content"]["text"]
+
+
+def test_slides_have_concept_map_button(client: TestClient) -> None:
+    """Slides should have a Concept Map button."""
+    response = client.post("/api/lecture/start", json={"topic": "Test"})
+    data = response.json()
+    labels = [c["label"] for c in data["interactive_controls"]]
+    assert any("Concept Map" in label for label in labels)
