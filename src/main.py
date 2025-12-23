@@ -391,5 +391,26 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         await update_session(session)
         return build_slide_payload(session, session.slides[session.current_index])
 
+    elif request.action == "show_references":
+        # Generate a references slide with curated learning resources
+        generated = llm.generate_references(session.topic, session.outline, session.current_index)
+
+        # Store as references slide
+        references_key = -4  # Special key for references slides
+        session.slides[references_key] = SlideState(
+            content=generated.content, controls=generated.controls
+        )
+        await update_session(session)
+
+        return SlidePayload(
+            slide_id=f"references_{session.current_index}",
+            session_id=session.session_id,
+            layout="references",
+            content=generated.content,
+            interactive_controls=generated.controls,
+            slide_index=session.current_index,
+            total_slides=session.total_slides,
+        )
+
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")

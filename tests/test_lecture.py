@@ -404,3 +404,27 @@ def test_last_slide_has_continue_learning_button(client: TestClient) -> None:
     labels = [c["label"] for c in data["interactive_controls"]]
     # Should have "Continue Learning" button
     assert any("Continue Learning" in label for label in labels)
+
+
+def test_show_references_returns_references_slide(client: TestClient) -> None:
+    """Show references action should return a references slide."""
+    start_response = client.post("/api/lecture/start", json={"topic": "Test"})
+    session_id = start_response.json()["session_id"]
+
+    action_response = client.post(
+        f"/api/lecture/{session_id}/action",
+        json={"action": "show_references"},
+    )
+
+    assert action_response.status_code == 200
+    data = action_response.json()
+    assert data["layout"] == "references"
+    assert "References" in data["content"]["title"]
+
+
+def test_slides_have_view_references_button(client: TestClient) -> None:
+    """Slides should have a View References button."""
+    response = client.post("/api/lecture/start", json={"topic": "Test"})
+    data = response.json()
+    labels = [c["label"] for c in data["interactive_controls"]]
+    assert any("References" in label for label in labels)

@@ -71,6 +71,12 @@ class LLMProvider(Protocol):
         """Generate a quiz question for the current content."""
         ...
 
+    def generate_references(
+        self, topic: str, outline: list[str], current_index: int
+    ) -> GeneratedSlide:
+        """Generate a references slide with curated learning resources."""
+        ...
+
 
 # Shared prompts for consistency across providers
 def get_outline_prompt(topic: str) -> str:
@@ -113,7 +119,7 @@ Return a JSON object with:
 1. "content": {{"title": "...", "text": "2-4 educational sentences"}}
 2. "controls": An array of interactive options. Each control has:
    - "label": The button text (be specific and contextual!)
-   - "action": One of ["advance_main_thread", "deep_dive", "simplify_slide", "show_example", "quiz_me", "extend_lecture"]
+   - "action": One of ["advance_main_thread", "deep_dive", "simplify_slide", "show_example", "quiz_me", "extend_lecture", "show_references"]
    - "params": Optional object with context (e.g., {{"concept": "specific term from this slide"}})
 
 IMPORTANT for controls:
@@ -122,6 +128,7 @@ IMPORTANT for controls:
 - Identify 1-2 key concepts/terms from YOUR content that could be deep-dived (action: deep_dive, params: {{"concept": "..."}})
 - Always include a "Simplify This" option (action: simplify_slide)
 - Optionally include "Show Example" or "Quiz Me" if appropriate for the content
+- Always include "View References" button (action: show_references) to let students find more resources
 
 Example response:
 {{
@@ -291,6 +298,46 @@ The first control MUST be "Return to: {content.title}" to let them go back.
 Return ONLY the JSON object."""
 
 
+def get_references_prompt(topic: str, outline: list[str], current_index: int) -> str:
+    covered_slides = outline[: current_index + 1]
+    covered_str = "\n".join(f"- {t}" for t in covered_slides)
+    return f"""You are creating a references slide for a lecture on "{topic}".
+
+The lecture has covered these topics so far:
+{covered_str}
+
+Generate a curated list of high-quality learning resources. Include:
+1. Official documentation or authoritative sources
+2. Tutorials and guides for beginners
+3. In-depth articles or papers for advanced learners
+4. Video resources if relevant
+5. Interactive tools or playgrounds if available
+
+IMPORTANT: Use REAL, well-known resources that actually exist. For programming topics, reference
+official docs, MDN, freeCodeCamp, etc. For science, reference educational institutions, Wikipedia, etc.
+
+Return a JSON object:
+{{
+  "content": {{
+    "title": "References & Further Reading",
+    "text": "A formatted markdown list of resources with links, organized by category. Use real URLs."
+  }},
+  "controls": [
+    {{"label": "Return to Lecture", "action": "return_to_main", "params": {{"slide_index": {current_index}}}}},
+    {{"label": "Continue Learning", "action": "advance_main_thread"}}
+  ]
+}}
+
+Format the text like:
+### Official Documentation
+- [Resource Name](https://real-url.com) - Brief description
+
+### Tutorials
+- [Tutorial Name](https://real-url.com) - Brief description
+
+Return ONLY the JSON object."""
+
+
 def get_quiz_prompt(content: SlideContent, context: SlideGenerationContext) -> str:
     return f"""You are creating a quiz question to test understanding of a concept from a lecture on "{context.topic}".
 
@@ -446,6 +493,14 @@ class GeminiProvider:
             retry_response = self.model.generate_content(retry_prompt)
             return parse_slide_response(retry_response.text)
 
+    def generate_references(
+        self, topic: str, outline: list[str], current_index: int
+    ) -> GeneratedSlide:
+        """Generate a references slide with curated learning resources."""
+        prompt = get_references_prompt(topic, outline, current_index)
+        response = self.model.generate_content(prompt)
+        return parse_slide_response(response.text)
+
 
 class AnthropicProvider:
     """Anthropic Claude-based LLM provider."""
@@ -565,6 +620,18 @@ class AnthropicProvider:
             )
             return parse_slide_response(retry_response.content[0].text)
 
+    def generate_references(
+        self, topic: str, outline: list[str], current_index: int
+    ) -> GeneratedSlide:
+        """Generate a references slide with curated learning resources."""
+        prompt = get_references_prompt(topic, outline, current_index)
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return parse_slide_response(response.content[0].text)
+
 
 class MockLLMProvider:
     """Mock LLM provider for testing."""
@@ -626,6 +693,9 @@ class MockLLMProvider:
         # Quiz option for non-intro/conclusion slides
         if context.slide_index not in [0, context.total_slides - 1]:
             controls.append(InteractiveControl(label="Quiz Me", action="quiz_me"))
+
+        # Always offer references
+        controls.append(InteractiveControl(label="View References", action="show_references"))
 
         content = SlideContent(
             title=context.slide_title,
@@ -763,6 +833,36 @@ class MockLLMProvider:
         )
 
         return GeneratedSlide(content=quiz_content, controls=controls)
+
+    def generate_references(
+        self, topic: str, outline: list[str], current_index: int
+    ) -> GeneratedSlide:
+        """Generate a mock references slide."""
+        controls = [
+            InteractiveControl(
+                label="Return to Lecture",
+                action="return_to_main",
+                params={"slide_index": current_index},
+            ),
+            InteractiveControl(label="Continue Learning", action="advance_main_thread"),
+        ]
+
+        references_content = SlideContent(
+            title="References & Further Reading",
+            text=f"""### Official Documentation
+- [Wikipedia: {topic}](https://en.wikipedia.org/wiki/{topic.replace(' ', '_')}) - Encyclopedia overview
+
+### Tutorials
+- [Learn {topic}](https://example.com/learn) - Beginner-friendly tutorial
+
+### Advanced Resources
+- [Deep Dive into {topic}](https://example.com/advanced) - For advanced learners
+
+### Video Resources
+- [Introduction to {topic}](https://youtube.com/watch) - Video explanation""",
+        )
+
+        return GeneratedSlide(content=references_content, controls=controls)
 
 
 def get_llm_provider(use_mock: bool = False) -> LLMProvider:
