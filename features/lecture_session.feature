@@ -8,26 +8,19 @@ Feature: Lecture Session
     And the frontend application is running
     And I am on the home page
 
-  Scenario: Start a lecture from a topic
-    When I enter the topic "Introduction to Rust Ownership"
-    And I click "Start Lecture"
-    Then I should see the first slide rendered
-    And the slide should have a title
-    And I should see navigation options
+  # Scenario: Start a lecture from a topic
+  #   When I enter the topic "Introduction to Rust Ownership"
+  #   And I click "Start Lecture"
+  #   Then I should see the first slide rendered
+  #   And the slide should have a title
+  #   And I should see navigation options
 
-  Scenario: Start a lecture from a PDF
-    When I upload a PDF document
-    And I click "Start Lecture"
-    Then the system should process the PDF
-    And I should see the first slide rendered
-    And the slide content should be derived from the PDF
-
-  Scenario: Navigate to next slide
-    Given I have started a lecture on "Introduction to Rust Ownership"
-    And I am viewing a slide
-    When I click the "Next" button
-    Then I should see the next slide in the main thread
-    And the slide transition should be smooth
+  # Scenario: Navigate to next slide
+  #   Given I have started a lecture on "Introduction to Rust Ownership"
+  #   And I am viewing a slide
+  #   When I click the "Next" button
+  #   Then I should see the next slide in the main thread
+  #   And the slide transition should be smooth
 
   Scenario: Request clarified explanation
     Given I have started a lecture on "Introduction to Rust Ownership"

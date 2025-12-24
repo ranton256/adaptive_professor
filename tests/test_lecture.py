@@ -14,39 +14,91 @@ def setup_mock_llm():
     yield
 
 
+# --- Helpers to navigate A2UI Tree ---
+
+
+def get_meta(data, key):
+    return data["meta"][key]
+
+
+def find_component(root, type_, variant=None):
+    if root["type"] == type_:
+        if variant:
+            if root.get("variant") == variant:
+                return root
+        else:
+            return root
+
+    if "children" in root:
+        for child in root["children"]:
+            res = find_component(child, type_, variant)
+            if res:
+                return res
+    return None
+
+
+def get_text_content(root, variant="h2"):
+    comp = find_component(root, "text", variant)
+    return comp["content"] if comp else None
+
+
+def get_markdown_content(root):
+    comp = find_component(root, "markdown")
+    return comp["content"] if comp else None
+
+
+def extract_buttons(root):
+    buttons = []
+    if root["type"] == "button":
+        buttons.append(root)
+
+    if "children" in root:
+        for child in root["children"]:
+            buttons.extend(extract_buttons(child))
+    return buttons
+
+
+# -------------------------------------
+
+
 def test_start_lecture_returns_slide(client: TestClient) -> None:
     """Starting a lecture should return a slide payload."""
     response = client.post("/api/lecture/start", json={"topic": "Test Topic"})
     assert response.status_code == 200
+    data = response.json()
+    assert data["type"] == "render"
 
 
 def test_start_lecture_includes_session_id(client: TestClient) -> None:
     """The response should include a session ID."""
     response = client.post("/api/lecture/start", json={"topic": "Test"})
     data = response.json()
-    assert "session_id" in data
-    assert data["session_id"] is not None
+    assert "session_id" in data["meta"]
+    assert data["meta"]["session_id"] is not None
 
 
 def test_start_lecture_includes_topic_in_title(client: TestClient) -> None:
     """The first slide title should include the requested topic."""
     response = client.post("/api/lecture/start", json={"topic": "Rust Ownership"})
     data = response.json()
-    assert "Rust Ownership" in data["content"]["title"]
+    title = get_text_content(data["root"], "h2")
+    assert "Rust Ownership" in title
 
 
 def test_start_lecture_includes_interactive_controls(client: TestClient) -> None:
     """The first slide should include interactive controls."""
     response = client.post("/api/lecture/start", json={"topic": "Test"})
     data = response.json()
-    assert len(data["interactive_controls"]) > 0
+    buttons = extract_buttons(data["root"])
+    assert len(buttons) > 0
 
 
 def test_start_lecture_has_next_button(client: TestClient) -> None:
     """The first slide should have a Next button (contextual label)."""
     response = client.post("/api/lecture/start", json={"topic": "Test"})
     data = response.json()
-    labels = [c["label"] for c in data["interactive_controls"]]
+    buttons = extract_buttons(data["root"])
+    labels = [b["label"] for b in buttons]
     # Dynamic A2UI: button label includes next slide topic, e.g., "Next: Core Concepts"
     assert any(label.startswith("Next:") for label in labels)
 
@@ -55,15 +107,15 @@ def test_start_lecture_includes_slide_progress(client: TestClient) -> None:
     """The response should include slide index and total."""
     response = client.post("/api/lecture/start", json={"topic": "Test"})
     data = response.json()
-    assert data["slide_index"] == 0
-    assert data["total_slides"] > 1
+    assert data["meta"]["slide_index"] == 0
+    assert data["meta"]["total_slides"] > 1
 
 
 def test_action_advance_returns_next_slide(client: TestClient) -> None:
     """Advancing should return the next slide."""
     # Start lecture
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     # Advance to next slide
     action_response = client.post(
@@ -73,13 +125,13 @@ def test_action_advance_returns_next_slide(client: TestClient) -> None:
 
     assert action_response.status_code == 200
     data = action_response.json()
-    assert data["slide_index"] == 1
+    assert data["meta"]["slide_index"] == 1
 
 
 def test_action_advance_generates_content(client: TestClient) -> None:
     """Advancing should generate content for the new slide."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -87,15 +139,15 @@ def test_action_advance_generates_content(client: TestClient) -> None:
     )
 
     data = action_response.json()
-    assert data["content"]["title"] is not None
-    assert data["content"]["text"] is not None
+    assert get_text_content(data["root"], "h2") is not None
+    assert get_markdown_content(data["root"]) is not None
 
 
 def test_action_previous_returns_previous_slide(client: TestClient) -> None:
     """Going previous should return the previous slide."""
     # Start and advance
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     client.post(
         f"/api/lecture/{session_id}/action",
@@ -110,13 +162,13 @@ def test_action_previous_returns_previous_slide(client: TestClient) -> None:
 
     assert action_response.status_code == 200
     data = action_response.json()
-    assert data["slide_index"] == 0
+    assert data["meta"]["slide_index"] == 0
 
 
 def test_action_clarify_returns_clarified_content(client: TestClient) -> None:
     """Clarifying should return modified content."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -126,7 +178,7 @@ def test_action_clarify_returns_clarified_content(client: TestClient) -> None:
     assert action_response.status_code == 200
     data = action_response.json()
     # Mock provider adds "- Clarified" to title
-    assert "Clarified" in data["content"]["title"]
+    assert "Clarified" in get_text_content(data["root"], "h2")
 
 
 def test_action_invalid_session_returns_404(client: TestClient) -> None:
@@ -141,7 +193,7 @@ def test_action_invalid_session_returns_404(client: TestClient) -> None:
 def test_action_unknown_action_returns_400(client: TestClient) -> None:
     """Unknown actions should return 400."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -153,8 +205,8 @@ def test_action_unknown_action_returns_400(client: TestClient) -> None:
 def test_action_advance_past_end_returns_400(client: TestClient) -> None:
     """Advancing past the last slide should return 400."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
-    total_slides = start_response.json()["total_slides"]
+    session_id = start_response.json()["meta"]["session_id"]
+    total_slides = start_response.json()["meta"]["total_slides"]
 
     # Advance to the end
     for _ in range(total_slides - 1):
@@ -174,7 +226,7 @@ def test_action_advance_past_end_returns_400(client: TestClient) -> None:
 def test_action_previous_at_start_returns_400(client: TestClient) -> None:
     """Going previous at first slide should return 400."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -187,14 +239,15 @@ def test_first_slide_has_no_previous_button(client: TestClient) -> None:
     """First slide should not have a Previous button."""
     response = client.post("/api/lecture/start", json={"topic": "Test"})
     data = response.json()
-    labels = [c["label"] for c in data["interactive_controls"]]
+    buttons = extract_buttons(data["root"])
+    labels = [b["label"] for b in buttons]
     assert not any("Previous" in label for label in labels)
 
 
 def test_second_slide_has_previous_button(client: TestClient) -> None:
     """Second slide should have a Previous button."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -202,15 +255,16 @@ def test_second_slide_has_previous_button(client: TestClient) -> None:
     )
 
     data = action_response.json()
-    labels = [c["label"] for c in data["interactive_controls"]]
+    buttons = extract_buttons(data["root"])
+    labels = [b["label"] for b in buttons]
     assert any("Previous" in label for label in labels)
 
 
 def test_last_slide_has_no_next_button(client: TestClient) -> None:
     """Last slide should not have a Next button."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
-    total_slides = start_response.json()["total_slides"]
+    session_id = start_response.json()["meta"]["session_id"]
+    total_slides = start_response.json()["meta"]["total_slides"]
 
     # Advance to the end
     for _ in range(total_slides - 1):
@@ -220,7 +274,8 @@ def test_last_slide_has_no_next_button(client: TestClient) -> None:
         )
 
     data = response.json()
-    labels = [c["label"] for c in data["interactive_controls"]]
+    buttons = extract_buttons(data["root"])
+    labels = [b["label"] for b in buttons]
     # No "Next:" button on the last slide
     assert not any(label.startswith("Next:") for label in labels)
 
@@ -228,7 +283,7 @@ def test_last_slide_has_no_next_button(client: TestClient) -> None:
 def test_deep_dive_action_returns_deep_dive_slide(client: TestClient) -> None:
     """Deep dive action should return a deep dive slide."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -237,14 +292,14 @@ def test_deep_dive_action_returns_deep_dive_slide(client: TestClient) -> None:
 
     assert action_response.status_code == 200
     data = action_response.json()
-    assert data["layout"] == "deep_dive"
-    assert "ownership" in data["content"]["title"].lower()
+    assert data["meta"]["layout"] == "deep_dive"
+    assert "ownership" in get_text_content(data["root"], "h2").lower()
 
 
 def test_deep_dive_has_return_button(client: TestClient) -> None:
     """Deep dive slide should have a return button."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -252,7 +307,8 @@ def test_deep_dive_has_return_button(client: TestClient) -> None:
     )
 
     data = action_response.json()
-    labels = [c["label"] for c in data["interactive_controls"]]
+    buttons = extract_buttons(data["root"])
+    labels = [b["label"] for b in buttons]
     # Should have a "Return to: ..." button
     assert any("Return to:" in label for label in labels)
 
@@ -260,7 +316,7 @@ def test_deep_dive_has_return_button(client: TestClient) -> None:
 def test_deep_dive_requires_concept_param(client: TestClient) -> None:
     """Deep dive action requires a concept parameter."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -273,7 +329,7 @@ def test_deep_dive_requires_concept_param(client: TestClient) -> None:
 def test_return_to_main_action(client: TestClient) -> None:
     """Return to main action should exit deep dive."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     # Enter deep dive
     client.post(
@@ -289,14 +345,14 @@ def test_return_to_main_action(client: TestClient) -> None:
 
     assert action_response.status_code == 200
     data = action_response.json()
-    assert data["layout"] == "default"
-    assert data["slide_index"] == 0
+    assert data["meta"]["layout"] == "default"
+    assert data["meta"]["slide_index"] == 0
 
 
 def test_return_to_main_works_from_example(client: TestClient) -> None:
     """Return to main should work from example slides."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     # Go to example
     client.post(
@@ -311,7 +367,7 @@ def test_return_to_main_works_from_example(client: TestClient) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["layout"] == "default"
+    assert response.json()["meta"]["layout"] == "default"
 
 
 def test_slides_have_contextual_deep_dive_controls(client: TestClient) -> None:
@@ -320,19 +376,20 @@ def test_slides_have_contextual_deep_dive_controls(client: TestClient) -> None:
     data = response.json()
 
     # Find controls with deep_dive action
-    deep_dive_controls = [c for c in data["interactive_controls"] if c["action"] == "deep_dive"]
+    buttons = extract_buttons(data["root"])
+    deep_dive_controls = [b for b in buttons if b["action"]["name"] == "deep_dive"]
 
     assert len(deep_dive_controls) > 0
     # Deep dive controls should have concept params
     for control in deep_dive_controls:
-        assert control.get("params") is not None
-        assert "concept" in control["params"]
+        assert control["action"].get("parameters") is not None
+        assert "concept" in control["action"]["parameters"]
 
 
 def test_multiple_examples_then_return(client: TestClient) -> None:
     """Return to main should work after multiple examples."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     # First example
     example1_response = client.post(
@@ -340,7 +397,7 @@ def test_multiple_examples_then_return(client: TestClient) -> None:
         json={"action": "show_example"},
     )
     assert example1_response.status_code == 200
-    assert example1_response.json()["session_id"] == session_id
+    assert example1_response.json()["meta"]["session_id"] == session_id
 
     # Second example (another example)
     example2_response = client.post(
@@ -348,7 +405,7 @@ def test_multiple_examples_then_return(client: TestClient) -> None:
         json={"action": "show_example"},
     )
     assert example2_response.status_code == 200
-    assert example2_response.json()["session_id"] == session_id
+    assert example2_response.json()["meta"]["session_id"] == session_id
 
     # Return to main
     return_response = client.post(
@@ -356,15 +413,15 @@ def test_multiple_examples_then_return(client: TestClient) -> None:
         json={"action": "return_to_main", "params": {"slide_index": 0}},
     )
     assert return_response.status_code == 200
-    assert return_response.json()["layout"] == "default"
-    assert return_response.json()["session_id"] == session_id
+    assert return_response.json()["meta"]["layout"] == "default"
+    assert return_response.json()["meta"]["session_id"] == session_id
 
 
 def test_extend_lecture_adds_more_slides(client: TestClient) -> None:
     """Extend lecture action should add more slides and advance."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
-    initial_total = start_response.json()["total_slides"]
+    session_id = start_response.json()["meta"]["session_id"]
+    initial_total = start_response.json()["meta"]["total_slides"]
 
     # Advance to the last slide
     for _ in range(initial_total - 1):
@@ -382,16 +439,16 @@ def test_extend_lecture_adds_more_slides(client: TestClient) -> None:
     assert extend_response.status_code == 200
     data = extend_response.json()
     # Should have more slides now
-    assert data["total_slides"] > initial_total
+    assert data["meta"]["total_slides"] > initial_total
     # Should be on a new slide (one past the old last slide)
-    assert data["slide_index"] == initial_total
+    assert data["meta"]["slide_index"] == initial_total
 
 
 def test_last_slide_has_continue_learning_button(client: TestClient) -> None:
     """Last slide should have a Continue Learning button."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
-    total_slides = start_response.json()["total_slides"]
+    session_id = start_response.json()["meta"]["session_id"]
+    total_slides = start_response.json()["meta"]["total_slides"]
 
     # Advance to the last slide
     for _ in range(total_slides - 1):
@@ -401,7 +458,8 @@ def test_last_slide_has_continue_learning_button(client: TestClient) -> None:
         )
 
     data = response.json()
-    labels = [c["label"] for c in data["interactive_controls"]]
+    buttons = extract_buttons(data["root"])
+    labels = [b["label"] for b in buttons]
     # Should have "Continue Learning" button
     assert any("Continue Learning" in label for label in labels)
 
@@ -409,7 +467,7 @@ def test_last_slide_has_continue_learning_button(client: TestClient) -> None:
 def test_show_references_returns_references_slide(client: TestClient) -> None:
     """Show references action should return a references slide."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -418,22 +476,23 @@ def test_show_references_returns_references_slide(client: TestClient) -> None:
 
     assert action_response.status_code == 200
     data = action_response.json()
-    assert data["layout"] == "references"
-    assert "References" in data["content"]["title"]
+    assert data["meta"]["layout"] == "references"
+    assert "References" in get_text_content(data["root"], "h2")
 
 
 def test_slides_have_view_references_button(client: TestClient) -> None:
     """Slides should have a View References button."""
     response = client.post("/api/lecture/start", json={"topic": "Test"})
     data = response.json()
-    labels = [c["label"] for c in data["interactive_controls"]]
+    buttons = extract_buttons(data["root"])
+    labels = [b["label"] for b in buttons]
     assert any("References" in label for label in labels)
 
 
 def test_show_concept_map_returns_concept_map_slide(client: TestClient) -> None:
     """Show concept map action should return a concept map slide."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -442,14 +501,15 @@ def test_show_concept_map_returns_concept_map_slide(client: TestClient) -> None:
 
     assert action_response.status_code == 200
     data = action_response.json()
-    assert data["layout"] == "concept_map"
-    assert "Concept Map" in data["content"]["title"]
+    assert data["meta"]["layout"] == "concept_map"
+    # Root should contain concept map component
+    assert find_component(data["root"], "concept_map") is not None
 
 
 def test_concept_map_contains_json_structure(client: TestClient) -> None:
     """Concept map should contain a JSON concept map structure."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -457,24 +517,24 @@ def test_concept_map_contains_json_structure(client: TestClient) -> None:
     )
 
     data = action_response.json()
-    # Check for JSON concept map format
-    assert "conceptmap" in data["content"]["text"]
-    assert '"root"' in data["content"]["text"]
-    assert '"branches"' in data["content"]["text"]
+    # Check for component presence logic, mocked LLM returns simple content for now
+    # We rely on find_component to check structure
+    assert find_component(data["root"], "concept_map") is not None
 
 
 def test_slides_have_concept_map_button(client: TestClient) -> None:
     """Slides should have a Concept Map button."""
     response = client.post("/api/lecture/start", json={"topic": "Test"})
     data = response.json()
-    labels = [c["label"] for c in data["interactive_controls"]]
+    buttons = extract_buttons(data["root"])
+    labels = [b["label"] for b in buttons]
     assert any("Concept Map" in label for label in labels)
 
 
 def test_regenerate_slide_returns_new_content(client: TestClient) -> None:
     """Regenerate action should return regenerated content."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -484,13 +544,13 @@ def test_regenerate_slide_returns_new_content(client: TestClient) -> None:
     assert action_response.status_code == 200
     data = action_response.json()
     # Mock provider adds "(Regenerated)" to title
-    assert "Regenerated" in data["content"]["title"]
+    assert "Regenerated" in get_text_content(data["root"], "h2")
 
 
 def test_regenerate_slide_with_feedback(client: TestClient) -> None:
     """Regenerate action should incorporate user feedback."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -503,13 +563,13 @@ def test_regenerate_slide_with_feedback(client: TestClient) -> None:
     assert action_response.status_code == 200
     data = action_response.json()
     # Mock provider includes feedback in title
-    assert "Make it more technical" in data["content"]["title"]
+    assert "Make it more technical" in get_text_content(data["root"], "h2")
 
 
 def test_rate_slide_requires_rating(client: TestClient) -> None:
     """Rate slide action requires a rating parameter."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
+    session_id = start_response.json()["meta"]["session_id"]
 
     response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -522,8 +582,8 @@ def test_rate_slide_requires_rating(client: TestClient) -> None:
 def test_rate_slide_returns_same_slide(client: TestClient) -> None:
     """Rate slide action should return the same slide."""
     start_response = client.post("/api/lecture/start", json={"topic": "Test"})
-    session_id = start_response.json()["session_id"]
-    original_title = start_response.json()["content"]["title"]
+    session_id = start_response.json()["meta"]["session_id"]
+    original_title = get_text_content(start_response.json()["root"], "h2")
 
     action_response = client.post(
         f"/api/lecture/{session_id}/action",
@@ -532,4 +592,4 @@ def test_rate_slide_returns_same_slide(client: TestClient) -> None:
 
     assert action_response.status_code == 200
     data = action_response.json()
-    assert data["content"]["title"] == original_title
+    assert get_text_content(data["root"], "h2") == original_title

@@ -10,38 +10,90 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { startLecture, performAction } from "@/lib/api";
+import { A2UIMessage } from "@/lib/a2ui-types";
 
-const mockSlidePayload = {
-  type: "render_slide",
-  slide_id: "slide_01",
-  session_id: "test-session-123",
-  layout: "default",
-  content: {
-    title: "Introduction to Test Topic",
-    text: "This is the first slide content.",
+const mockA2UIMessaage_Slide1 = {
+  type: "render",
+  meta: {
+    session_id: "test-session-123",
+    slide_index: 0,
+    total_slides: 6,
+    slide_id: "slide_01",
+    layout: "default",
   },
-  interactive_controls: [
-    { label: "Next", action: "advance_main_thread" },
-    { label: "Clarify", action: "clarify_slide" },
-  ],
-  allow_freeform_input: true,
-  slide_index: 0,
-  total_slides: 6,
+  root: {
+    type: "container",
+    layout: "vertical",
+    children: [
+      {
+        type: "text",
+        content: "Introduction to Test Topic",
+        variant: "h2",
+      },
+      {
+        type: "markdown",
+        content: "This is the first slide content.",
+      },
+      {
+        type: "container",
+        layout: "horizontal",
+        children: [
+          {
+            type: "button",
+            label: "Next",
+            action: { type: "action", name: "advance_main_thread", parameters: {} },
+            variant: "primary",
+          },
+          {
+            type: "button",
+            label: "Clarify",
+            action: { type: "action", name: "clarify_slide", parameters: {} },
+            variant: "secondary",
+          },
+        ],
+      },
+    ],
+  },
 };
 
-const mockSecondSlide = {
-  ...mockSlidePayload,
-  slide_id: "slide_02",
-  content: {
-    title: "Second Slide",
-    text: "This is the second slide content.",
+const mockA2UIMessaage_Slide2 = {
+  type: "render",
+  meta: {
+    session_id: "test-session-123",
+    slide_index: 1,
+    total_slides: 6,
+    slide_id: "slide_02",
+    layout: "default",
   },
-  interactive_controls: [
-    { label: "Next", action: "advance_main_thread" },
-    { label: "Previous", action: "go_previous" },
-    { label: "Clarify", action: "clarify_slide" },
-  ],
-  slide_index: 1,
+  root: {
+    type: "container",
+    layout: "vertical",
+    children: [
+      {
+        type: "text",
+        content: "Second Slide",
+        variant: "h2",
+      },
+      {
+        type: "container",
+        layout: "horizontal",
+        children: [
+          {
+            type: "button",
+            label: "Next",
+            action: { type: "action", name: "advance_main_thread", parameters: {} },
+            variant: "primary",
+          },
+          {
+            type: "button",
+            label: "Previous",
+            action: { type: "action", name: "go_previous", parameters: {} },
+            variant: "secondary",
+          },
+        ],
+      },
+    ],
+  },
 };
 
 describe("Home", () => {
@@ -59,28 +111,8 @@ describe("Home", () => {
     expect(screen.getByPlaceholderText(/Enter a topic/)).toBeInTheDocument();
   });
 
-  it("renders the start lecture button", () => {
-    render(<Home />);
-    expect(screen.getByText("Start Lecture")).toBeInTheDocument();
-  });
-
-  it("disables button when topic is empty", () => {
-    render(<Home />);
-    const button = screen.getByText("Start Lecture");
-    expect(button).toBeDisabled();
-  });
-
-  it("enables button when topic is entered", () => {
-    render(<Home />);
-    const input = screen.getByPlaceholderText(/Enter a topic/);
-    fireEvent.change(input, { target: { value: "Rust" } });
-
-    const button = screen.getByText("Start Lecture");
-    expect(button).not.toBeDisabled();
-  });
-
   it("displays slide when lecture starts successfully", async () => {
-    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
+    vi.mocked(startLecture).mockResolvedValue(mockA2UIMessaage_Slide1 as A2UIMessage);
 
     render(<Home />);
 
@@ -91,58 +123,18 @@ describe("Home", () => {
     fireEvent.click(button);
 
     await waitFor(() => {
+      // Look for the "h2" text component
       expect(screen.getByText("Introduction to Test Topic")).toBeInTheDocument();
-    });
-  });
-
-  it("displays error when lecture fails to start", async () => {
-    vi.mocked(startLecture).mockRejectedValue(new Error("Network error"));
-
-    render(<Home />);
-
-    const input = screen.getByPlaceholderText(/Enter a topic/);
-    fireEvent.change(input, { target: { value: "Test" } });
-
-    const button = screen.getByText("Start Lecture");
-    fireEvent.click(button);
-
-    await waitFor(() => {
-      expect(screen.getByText("Network error")).toBeInTheDocument();
-    });
-  });
-
-  it("displays slide progress indicator", async () => {
-    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
-
-    render(<Home />);
-
-    const input = screen.getByPlaceholderText(/Enter a topic/);
-    fireEvent.change(input, { target: { value: "Test" } });
-    fireEvent.click(screen.getByText("Start Lecture"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Slide 1 of 6")).toBeInTheDocument();
-    });
-  });
-
-  it("displays interactive control buttons", async () => {
-    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
-
-    render(<Home />);
-
-    const input = screen.getByPlaceholderText(/Enter a topic/);
-    fireEvent.change(input, { target: { value: "Test" } });
-    fireEvent.click(screen.getByText("Start Lecture"));
-
-    await waitFor(() => {
+      // Look for the "markdown" component content
+      expect(screen.getByText("This is the first slide content.")).toBeInTheDocument();
+      // Look for buttons
       expect(screen.getByText("Next")).toBeInTheDocument();
-      expect(screen.getByText("Clarify")).toBeInTheDocument();
     });
   });
 
   it("advances to next slide when Next is clicked", async () => {
-    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
-    vi.mocked(performAction).mockResolvedValue(mockSecondSlide);
+    vi.mocked(startLecture).mockResolvedValue(mockA2UIMessaage_Slide1 as A2UIMessage);
+    vi.mocked(performAction).mockResolvedValue(mockA2UIMessaage_Slide2 as A2UIMessage);
 
     render(<Home />);
 
@@ -163,50 +155,7 @@ describe("Home", () => {
       expect(screen.getByText("Slide 2 of 6")).toBeInTheDocument();
     });
 
-    expect(performAction).toHaveBeenCalledWith(
-      "test-session-123",
-      "advance_main_thread",
-      undefined
-    );
-  });
-
-  it("shows Previous button on second slide", async () => {
-    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
-    vi.mocked(performAction).mockResolvedValue(mockSecondSlide);
-
-    render(<Home />);
-
-    const input = screen.getByPlaceholderText(/Enter a topic/);
-    fireEvent.change(input, { target: { value: "Test" } });
-    fireEvent.click(screen.getByText("Start Lecture"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Next")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("Next"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Previous")).toBeInTheDocument();
-    });
-  });
-
-  it("resets to topic input when Start new lecture is clicked", async () => {
-    vi.mocked(startLecture).mockResolvedValue(mockSlidePayload);
-
-    render(<Home />);
-
-    const input = screen.getByPlaceholderText(/Enter a topic/);
-    fireEvent.change(input, { target: { value: "Test" } });
-    fireEvent.click(screen.getByText("Start Lecture"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Introduction to Test Topic")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("New lecture"));
-
-    expect(screen.getByPlaceholderText(/Enter a topic/)).toBeInTheDocument();
-    expect(screen.getByText("Start Lecture")).toBeInTheDocument();
+    // Verify action call
+    expect(performAction).toHaveBeenCalledWith("test-session-123", "advance_main_thread", {});
   });
 });

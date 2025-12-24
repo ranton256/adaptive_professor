@@ -6,7 +6,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from src.components.slides import InteractiveControl, SlideContent, SlidePayload
+from src.a2ui_adapter import domain_to_a2ui
+from src.a2ui_core import A2UIMessage
+from src.components.slides import SlideContent, SlidePayload
 from src.config import settings
 from src.database import init_db, log_feedback
 from src.llm import SlideGenerationContext, get_llm_provider
@@ -107,8 +109,8 @@ async def health_check() -> HealthResponse:
     return HealthResponse(status="healthy", service=settings.app_name)
 
 
-@app.post("/api/lecture/start", response_model=SlidePayload)
-async def start_lecture(request: StartLectureRequest) -> SlidePayload:
+@app.post("/api/lecture/start", response_model=A2UIMessage)
+async def start_lecture(request: StartLectureRequest) -> A2UIMessage:
     """Start a new lecture session and return the first slide."""
     llm = get_llm()
 
@@ -127,11 +129,12 @@ async def start_lecture(request: StartLectureRequest) -> SlidePayload:
     session.slides[0] = slide_state
     await update_session(session)
 
-    return build_slide_payload(session, slide_state)
+    payload = build_slide_payload(session, slide_state)
+    return domain_to_a2ui(payload)
 
 
-@app.post("/api/lecture/{session_id}/action", response_model=SlidePayload)
-async def perform_action(session_id: str, request: ActionRequest) -> SlidePayload:
+@app.post("/api/lecture/{session_id}/action", response_model=A2UIMessage)
+async def perform_action(session_id: str, request: ActionRequest) -> A2UIMessage:
     """Perform an action on the current lecture session."""
     session = await get_session(session_id)
     if not session:
@@ -159,7 +162,8 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             )
 
         await update_session(session)
-        return build_slide_payload(session, session.slides[session.current_index])
+        payload = build_slide_payload(session, session.slides[session.current_index])
+        return domain_to_a2ui(payload)
 
     elif request.action == "go_previous":
         if not session.has_previous:
@@ -172,7 +176,8 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
 
         session.current_index -= 1
         await update_session(session)
-        return build_slide_payload(session, session.slides[session.current_index])
+        payload = build_slide_payload(session, session.slides[session.current_index])
+        return domain_to_a2ui(payload)
 
     elif request.action == "clarify_slide":
         current_state = session.slides[session.current_index]
@@ -182,7 +187,8 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             content=generated.content, controls=generated.controls
         )
         await update_session(session)
-        return build_slide_payload(session, session.slides[session.current_index])
+        payload = build_slide_payload(session, session.slides[session.current_index])
+        return domain_to_a2ui(payload)
 
     elif request.action == "regenerate_slide":
         # Regenerate the current slide with optional feedback
@@ -211,7 +217,8 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             content=generated.content, controls=generated.controls
         )
         await update_session(session)
-        return build_slide_payload(session, session.slides[session.current_index])
+        payload = build_slide_payload(session, session.slides[session.current_index])
+        return domain_to_a2ui(payload)
 
     elif request.action == "rate_slide":
         # Log a rating for the current slide without regenerating
@@ -235,8 +242,9 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             original_content=original_content,
         )
 
-        # Return the same slide (no change)
-        return build_slide_payload(session, session.slides[session.current_index])
+        # Return the same slide (no change) by generating a fresh payload from state
+        payload = build_slide_payload(session, session.slides[session.current_index])
+        return domain_to_a2ui(payload)
 
     elif request.action == "deep_dive":
         if not request.params or "concept" not in request.params:
@@ -262,7 +270,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         await update_session(session)
 
         # Return the deep dive slide
-        return SlidePayload(
+        deep_dive_payload = SlidePayload(
             slide_id=f"deep_dive_{concept.replace(' ', '_')}",
             session_id=session.session_id,
             layout="deep_dive",
@@ -271,6 +279,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             slide_index=session.current_index,  # Keep showing parent index
             total_slides=session.total_slides,
         )
+        return domain_to_a2ui(deep_dive_payload)
 
     elif request.action == "return_to_main":
         # Return to a main slide from any detour (deep dive, example, quiz)
@@ -284,7 +293,8 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         session.deep_dive_concept = None
 
         await update_session(session)
-        return build_slide_payload(session, session.slides[session.current_index])
+        payload = build_slide_payload(session, session.slides[session.current_index])
+        return domain_to_a2ui(payload)
 
     elif request.action == "show_example":
         # Generate an example for the current slide content
@@ -303,6 +313,10 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
                 title="Example Generation Failed",
                 text=f"Sorry, I couldn't generate an example. Error: {str(e)[:200]}",
             )
+            # Create interactive controls manually for the error case
+            # We must use InteractiveControl objects here to match SlidePayload expectations
+            from src.components.slides import InteractiveControl
+
             error_controls = [
                 InteractiveControl(
                     label="Return to Slide",
@@ -311,7 +325,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
                 ),
                 InteractiveControl(label="Try Again", action="show_example"),
             ]
-            return SlidePayload(
+            error_payload = SlidePayload(
                 slide_id=f"example_error_{session.current_index}",
                 session_id=session.session_id,
                 layout="example",
@@ -320,6 +334,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
                 slide_index=session.current_index,
                 total_slides=session.total_slides,
             )
+            return domain_to_a2ui(error_payload)
 
         # Store as example slide
         example_key = -2  # Special key for example slides
@@ -328,7 +343,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         )
         await update_session(session)
 
-        return SlidePayload(
+        example_payload = SlidePayload(
             slide_id=f"example_{session.current_index}",
             session_id=session.session_id,
             layout="example",
@@ -337,6 +352,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             slide_index=session.current_index,
             total_slides=session.total_slides,
         )
+        return domain_to_a2ui(example_payload)
 
     elif request.action == "quiz_me":
         # Generate a quiz question for the current content
@@ -349,6 +365,8 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         try:
             generated = llm.generate_quiz(current_state.content, context)
         except Exception as e:
+            from src.components.slides import InteractiveControl
+
             error_content = SlideContent(
                 title="Quiz Generation Failed",
                 text=f"Sorry, I couldn't generate a quiz. Error: {str(e)[:200]}",
@@ -361,7 +379,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
                 ),
                 InteractiveControl(label="Try Again", action="quiz_me"),
             ]
-            return SlidePayload(
+            error_payload = SlidePayload(
                 slide_id=f"quiz_error_{session.current_index}",
                 session_id=session.session_id,
                 layout="quiz",
@@ -370,6 +388,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
                 slide_index=session.current_index,
                 total_slides=session.total_slides,
             )
+            return domain_to_a2ui(error_payload)
 
         # Store as quiz slide
         quiz_key = -3  # Special key for quiz slides
@@ -378,7 +397,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         )
         await update_session(session)
 
-        return SlidePayload(
+        quiz_payload = SlidePayload(
             slide_id=f"quiz_{session.current_index}",
             session_id=session.session_id,
             layout="quiz",
@@ -387,6 +406,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             slide_index=session.current_index,
             total_slides=session.total_slides,
         )
+        return domain_to_a2ui(quiz_payload)
 
     elif request.action == "quiz_answer":
         # Handle quiz answer selection
@@ -405,6 +425,8 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             result_title = f"Incorrect ({answer})"
             result_text = f"**Not quite.** {explanation}"
 
+        from src.components.slides import InteractiveControl
+
         result_content = SlideContent(title=result_title, text=result_text)
         result_controls = [
             InteractiveControl(
@@ -416,7 +438,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             InteractiveControl(label="Continue Lecture", action="advance_main_thread"),
         ]
 
-        return SlidePayload(
+        result_payload = SlidePayload(
             slide_id=f"quiz_result_{session.current_index}",
             session_id=session.session_id,
             layout="quiz_result",
@@ -425,6 +447,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             slide_index=session.current_index,
             total_slides=session.total_slides,
         )
+        return domain_to_a2ui(result_payload)
 
     elif request.action == "extend_lecture":
         # Generate more slides to continue learning
@@ -444,7 +467,8 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         )
 
         await update_session(session)
-        return build_slide_payload(session, session.slides[session.current_index])
+        payload = build_slide_payload(session, session.slides[session.current_index])
+        return domain_to_a2ui(payload)
 
     elif request.action == "show_references":
         # Generate references with URL validation and regeneration if needed
@@ -486,7 +510,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         )
         await update_session(session)
 
-        return SlidePayload(
+        references_payload = SlidePayload(
             slide_id=f"references_{session.current_index}",
             session_id=session.session_id,
             layout="references",
@@ -495,6 +519,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             slide_index=session.current_index,
             total_slides=session.total_slides,
         )
+        return domain_to_a2ui(references_payload)
 
     elif request.action == "show_concept_map":
         # Generate an interactive concept map of the topic
@@ -507,7 +532,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
         )
         await update_session(session)
 
-        return SlidePayload(
+        concept_map_payload = SlidePayload(
             slide_id=f"concept_map_{session.current_index}",
             session_id=session.session_id,
             layout="concept_map",
@@ -516,6 +541,7 @@ async def perform_action(session_id: str, request: ActionRequest) -> SlidePayloa
             slide_index=session.current_index,
             total_slides=session.total_slides,
         )
+        return domain_to_a2ui(concept_map_payload)
 
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")

@@ -1,32 +1,10 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+import { A2UIMessage } from "./a2ui-types";
+
 export interface HealthResponse {
   status: string;
   service: string;
-}
-
-export interface SlideContent {
-  title: string;
-  text: string;
-  diagram_code?: string;
-}
-
-export interface InteractiveControl {
-  label: string;
-  action: string;
-  params?: Record<string, unknown>;
-}
-
-export interface SlidePayload {
-  type: string;
-  slide_id: string;
-  session_id: string | null;
-  layout: string;
-  content: SlideContent;
-  interactive_controls: InteractiveControl[];
-  allow_freeform_input: boolean;
-  slide_index: number;
-  total_slides: number;
 }
 
 export async function checkHealth(): Promise<HealthResponse> {
@@ -37,7 +15,7 @@ export async function checkHealth(): Promise<HealthResponse> {
   return response.json();
 }
 
-export async function startLecture(topic: string): Promise<SlidePayload> {
+export async function startLecture(topic: string): Promise<A2UIMessage> {
   const response = await fetch(`${API_BASE_URL}/api/lecture/start`, {
     method: "POST",
     headers: {
@@ -55,7 +33,7 @@ export async function performAction(
   sessionId: string,
   action: string,
   params?: Record<string, unknown>
-): Promise<SlidePayload> {
+): Promise<A2UIMessage> {
   const response = await fetch(`${API_BASE_URL}/api/lecture/${sessionId}/action`, {
     method: "POST",
     headers: {

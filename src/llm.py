@@ -1122,7 +1122,8 @@ class MockLLMProvider:
 
         concept_map_content = SlideContent(
             title=f"Concept Map: {topic}",
-            text=f"```conceptmap\n{json_module.dumps(concept_map_data, indent=2)}\n```",
+            text="Explore the relationships between key concepts in this topic.",
+            diagram_code=json_module.dumps(concept_map_data, indent=2),
         )
 
         return GeneratedSlide(content=concept_map_content, controls=controls)
